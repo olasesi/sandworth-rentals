@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "role": "admin",
+        "name": "Sandworth Admin",
+        "email": "admin@sandworthliving.test",
+        "phone": "+234 800 000 0000",
+        "passwordHash": "$2y$10$0heVvysfclpW71bazeTCheE0hCIduVi\/7lyDccUty6ZTZpSm0iga6",
+        "createdAt": "2026-07-31 22:26:54"
+    },
+    {
+        "id": 2,
+        "role": "user",
+        "name": "Smoke Tester",
+        "email": "smoke-1785529614@example.test",
+        "phone": "08000000000",
+        "passwordHash": "$2y$10$Ekl.Xydn4zi09Atl1vW2ge9vA6bBxnqE0iIY6BSfEuIFoX4SEC836",
+        "createdAt": "2026-07-31 22:26:54"
+    }
+]

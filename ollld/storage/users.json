@@ -1,0 +1,11 @@
+[
+    {
+        "id": 1,
+        "role": "admin",
+        "name": "Sandworth Admin",
+        "email": "admin@sandworthliving.test",
+        "phone": "+234 800 000 0000",
+        "passwordHash": "$2y$10$vqn4naFRj7PXiFVaXqWNueClmv6qoxuLJKa2wy5dZPcYtBQ9ROHhm",
+        "createdAt": "2026-07-31 22:26:54"
+    }
+]

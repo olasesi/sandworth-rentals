@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "userId": 2,
+        "propertyId": 101,
+        "status": "active",
+        "fullName": "Smoke Tester",
+        "email": "smoke-1785529614@example.test",
+        "phone": "08000000000",
+        "annualIncome": "$52,000",
+        "employer": "Example Corp",
+        "moveInDate": "2026-08-15",
+        "occupants": 2,
+        "notes": "Smoke test application",
+        "submittedAt": "2026-07-31 22:26:54",
+        "approvedAt": "2026-07-31 22:26:54",
+        "approvedBy": "Sandworth Admin",
+        "activatedAt": "2026-07-31 22:26:54"
+    }
+]

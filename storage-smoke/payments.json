@@ -1,0 +1,28 @@
+[
+    {
+        "id": 1,
+        "userId": 2,
+        "propertyId": 101,
+        "applicationId": 1,
+        "tenancyId": 1,
+        "amount": 5194,
+        "channel": "online",
+        "cardLast4": "4242",
+        "reference": "PAY-B83E4C77BB",
+        "description": "Move-in payment bundle",
+        "createdAt": "2026-07-31 22:26:54"
+    },
+    {
+        "id": 2,
+        "userId": 2,
+        "propertyId": 101,
+        "applicationId": 1,
+        "tenancyId": 1,
+        "amount": 300,
+        "channel": "online",
+        "cardLast4": "4444",
+        "reference": "PAY-4FA410F1BA",
+        "description": "September service charge",
+        "createdAt": "2026-07-31 22:26:54"
+    }
+]

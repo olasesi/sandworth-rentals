@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /?page=admin
+Disallow: /?page=admin-editorial
+Disallow: /?page=admin-properties
+Disallow: /?page=admin-applications
+Disallow: /?page=admin-inventory
+Disallow: /?page=admin-seo
+Disallow: /?page=login
+Disallow: /?page=register
+Disallow: /?page=dashboard
+Disallow: /?page=tenancy
+Disallow: /?page=payment
+Sitemap: https://rentals.sandworthproperties.ng/sitemap.xml

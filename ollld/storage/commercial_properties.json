@@ -1,0 +1,176 @@
+[
+    {
+        "id": 701,
+        "title": "Lekki Prime Shopping Mall",
+        "price": "$18,500\/mo",
+        "location": "Lekki-Epe Expressway, Lagos",
+        "commercialType": "Shopping Mall",
+        "leaseTerm": "5-10 year lease",
+        "units": 46,
+        "floors": 3,
+        "area": "38,000 sqft",
+        "availableDate": "Available for lease now",
+        "type": "Mall",
+        "purpose": "commercial",
+        "image": "https:\/\/images.unsplash.com\/photo-1519567241046-7f570eee3ce6?auto=format&fit=crop&w=1200&q=80",
+        "images": [
+            "https:\/\/images.unsplash.com\/photo-1519567241046-7f570eee3ce6?auto=format&fit=crop&w=1200&q=80",
+            "https:\/\/images.unsplash.com\/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80",
+            "https:\/\/images.unsplash.com\/photo-1555529771-7888783a18d3?auto=format&fit=crop&w=1200&q=80"
+        ],
+        "badges": [
+            "Long lease",
+            "Anchor tenant ready",
+            "High footfall"
+        ],
+        "summary": "Three-level shopping mall on the Lekki-Epe corridor with anchor supermarket space, food court zone and a paved 200-bay car park. Available for a single master lease or unit-by-unit retail lets.",
+        "features": [
+            "Anchor supermarket bay",
+            "Food court zone",
+            "200-bay parking",
+            "Central AC",
+            "Backup power plant",
+            "24\/7 security"
+        ],
+        "lat": "6.4507",
+        "lng": "3.5560",
+        "askingPrice": 18500
+    },
+    {
+        "id": 702,
+        "title": "Victoria Island Retail Plaza",
+        "price": "$9,200\/mo",
+        "location": "Adeola Odeku, Victoria Island, Lagos",
+        "commercialType": "Retail Plaza",
+        "leaseTerm": "3-7 year lease",
+        "units": 18,
+        "floors": 2,
+        "area": "14,500 sqft",
+        "availableDate": "Available Sep 01, 2026",
+        "type": "Shop",
+        "purpose": "commercial",
+        "image": "https:\/\/images.unsplash.com\/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&w=1200&q=80",
+        "images": [
+            "https:\/\/images.unsplash.com\/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&w=1200&q=80",
+            "https:\/\/images.unsplash.com\/photo-1580913428735-bd3c269d6a82?auto=format&fit=crop&w=1200&q=80"
+        ],
+        "badges": [
+            "Long lease",
+            "Prime frontage",
+            "Banking hall ready"
+        ],
+        "summary": "Glass-fronted retail plaza on a high-traffic Victoria Island corner, previously home to a banking hall and boutique retail row. Suited to flagship stores, showrooms or a single corporate tenant.",
+        "features": [
+            "Street-level frontage",
+            "Passenger lift",
+            "Fibre internet ready",
+            "Dedicated generator",
+            "Basement parking"
+        ],
+        "lat": "6.4294",
+        "lng": "3.4219",
+        "askingPrice": 9200
+    },
+    {
+        "id": 703,
+        "title": "Ikeja City Mall Annex",
+        "price": "$12,000\/mo",
+        "location": "Obafemi Awolowo Way, Ikeja, Lagos",
+        "commercialType": "Shopping Mall",
+        "leaseTerm": "5 year lease, renewable",
+        "units": 30,
+        "floors": 2,
+        "area": "26,000 sqft",
+        "availableDate": "Available now",
+        "type": "Mall",
+        "purpose": "commercial",
+        "image": "https:\/\/images.unsplash.com\/photo-1567449303078-57ad995bd17f?auto=format&fit=crop&w=1200&q=80",
+        "images": [
+            "https:\/\/images.unsplash.com\/photo-1567449303078-57ad995bd17f?auto=format&fit=crop&w=1200&q=80",
+            "https:\/\/images.unsplash.com\/photo-1487958449943-2429e8be8625?auto=format&fit=crop&w=1200&q=80"
+        ],
+        "badges": [
+            "Long lease",
+            "Cinema-ready shell",
+            "Escalator access"
+        ],
+        "summary": "Extension wing of an established Ikeja mall precinct with a cinema-ready shell unit, mid-mall kiosks and direct escalator access from the main atrium.",
+        "features": [
+            "Cinema shell unit",
+            "Mid-mall kiosk bays",
+            "Escalators",
+            "Loading bay",
+            "Central AC",
+            "CCTV network"
+        ],
+        "lat": "6.6018",
+        "lng": "3.3515",
+        "askingPrice": 12000
+    },
+    {
+        "id": 704,
+        "title": "Surulere High Street Shops",
+        "price": "$3,400\/mo",
+        "location": "Adeniran Ogunsanya, Surulere, Lagos",
+        "commercialType": "Shop Row",
+        "leaseTerm": "2-5 year lease",
+        "units": 8,
+        "floors": 1,
+        "area": "4,200 sqft",
+        "availableDate": "Available Aug 25, 2026",
+        "type": "Shop",
+        "purpose": "commercial",
+        "image": "https:\/\/images.unsplash.com\/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80",
+        "images": [
+            "https:\/\/images.unsplash.com\/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80"
+        ],
+        "badges": [
+            "Long lease",
+            "Walk-in traffic",
+            "Flexible unit sizes"
+        ],
+        "summary": "Row of eight ground-floor shop units on a busy Surulere high street, ideal for fashion, electronics or convenience retail with strong daily foot traffic.",
+        "features": [
+            "Roller shutter fronts",
+            "Individual metering",
+            "Street parking",
+            "Signage frontage"
+        ],
+        "lat": "6.4926",
+        "lng": "3.3546",
+        "askingPrice": 3400
+    },
+    {
+        "id": 705,
+        "title": "Yaba Tech Retail Hub",
+        "price": "$5,600\/mo",
+        "location": "Herbert Macaulay Way, Yaba, Lagos",
+        "commercialType": "Retail Plaza",
+        "leaseTerm": "3-6 year lease",
+        "units": 12,
+        "floors": 2,
+        "area": "9,800 sqft",
+        "availableDate": "Available now",
+        "type": "Shop",
+        "purpose": "commercial",
+        "image": "https:\/\/images.unsplash.com\/photo-1555529669-e69e7aa0ba9a?auto=format&fit=crop&w=1200&q=80",
+        "images": [
+            "https:\/\/images.unsplash.com\/photo-1555529669-e69e7aa0ba9a?auto=format&fit=crop&w=1200&q=80"
+        ],
+        "badges": [
+            "Long lease",
+            "Tech corridor",
+            "Co-retail friendly"
+        ],
+        "summary": "Retail plaza in the heart of the Yaba tech corridor, popular with gadget retailers, cowork brands and quick-service food tenants.",
+        "features": [
+            "Open-plan shells",
+            "Fibre internet ready",
+            "Shared loading dock",
+            "Rooftop signage"
+        ],
+        "lat": "6.5095",
+        "lng": "3.3711",
+        "askingPrice": 5600
+    }
+]

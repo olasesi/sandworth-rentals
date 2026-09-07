@@ -1,0 +1,48 @@
+[
+    {
+        "id": 1,
+        "userId": 2,
+        "propertyId": 101,
+        "applicationId": 1,
+        "status": "active",
+        "startDate": "2026-08-15",
+        "monthlyRent": 2450,
+        "serviceCharge": 294,
+        "securityDeposit": 2450,
+        "ledger": [
+            {
+                "label": "First month rent",
+                "type": "rent",
+                "amount": 2450,
+                "status": "paid",
+                "paymentReference": "PAY-B83E4C77BB",
+                "paidAt": "2026-07-31 22:26:54"
+            },
+            {
+                "label": "Service charge",
+                "type": "service_charge",
+                "amount": 294,
+                "status": "paid",
+                "paymentReference": "PAY-B83E4C77BB",
+                "paidAt": "2026-07-31 22:26:54"
+            },
+            {
+                "label": "Security deposit",
+                "type": "deposit",
+                "amount": 2450,
+                "status": "paid",
+                "paymentReference": "PAY-B83E4C77BB",
+                "paidAt": "2026-07-31 22:26:54"
+            },
+            {
+                "label": "September service charge",
+                "type": "service_charge",
+                "amount": 300,
+                "status": "paid",
+                "paymentReference": "PAY-4FA410F1BA",
+                "paidAt": "2026-07-31 22:26:54"
+            }
+        ],
+        "createdAt": "2026-07-31 22:26:54"
+    }
+]

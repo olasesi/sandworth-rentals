@@ -1,0 +1,110 @@
+[
+    {
+        "id": 501,
+        "title": "Coral Ridge Signature Villa",
+        "price": "$415,000",
+        "location": "Banana Island, Lagos",
+        "beds": 5,
+        "baths": 5.5,
+        "area": "4,800 sqft",
+        "petFriendly": true,
+        "availableDate": "Open house Aug 8, 2026",
+        "type": "Villa",
+        "purpose": "sale",
+        "image": "https:\/\/images.unsplash.com\/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=1200&q=80",
+        "badges": [
+            "For sale",
+            "Open house",
+            "Sea view"
+        ],
+        "summary": "Contemporary villa with private jetty access, a home cinema, and a double-height living room.",
+        "features": [
+            "Infinity pool",
+            "Home office",
+            "Smart lighting",
+            "Dock access"
+        ],
+        "askingPrice": 415000
+    },
+    {
+        "id": 502,
+        "title": "Parkside Terrace Duplex",
+        "price": "$278,000",
+        "location": "Asokoro, Abuja",
+        "beds": 4,
+        "baths": 4,
+        "area": "3,050 sqft",
+        "petFriendly": false,
+        "availableDate": "Open house Aug 15, 2026",
+        "type": "Duplex",
+        "purpose": "sale",
+        "image": "https:\/\/images.unsplash.com\/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80",
+        "badges": [
+            "Price cut",
+            "Gated estate",
+            "Move-in ready"
+        ],
+        "summary": "Family-focused duplex near parks and diplomatic zone access with upgraded kitchen and garden patio.",
+        "features": [
+            "Servant quarters",
+            "Garden patio",
+            "Backup generator",
+            "Walk-in closets"
+        ],
+        "askingPrice": 278000
+    },
+    {
+        "id": 503,
+        "title": "Marina Point Sky Residence",
+        "price": "$332,000",
+        "location": "Eko Atlantic, Lagos",
+        "beds": 3,
+        "baths": 3.5,
+        "area": "2,480 sqft",
+        "petFriendly": true,
+        "availableDate": "Available now",
+        "type": "Condo",
+        "purpose": "sale",
+        "image": "https:\/\/images.unsplash.com\/photo-1511818966892-d7d671e672a2?auto=format&fit=crop&w=1200&q=80",
+        "badges": [
+            "For sale",
+            "Corner unit",
+            "Mortgage ready"
+        ],
+        "summary": "Ocean-facing condo with concierge reception, residents lounge and strong short-let upside.",
+        "features": [
+            "Concierge",
+            "Gym",
+            "Ocean balcony",
+            "Two parking bays"
+        ],
+        "askingPrice": 332000
+    },
+    {
+        "id": 504,
+        "title": "The Grove Starter Residence",
+        "price": "$189,000",
+        "location": "Jabi, Abuja",
+        "beds": 2,
+        "baths": 2,
+        "area": "1,420 sqft",
+        "petFriendly": true,
+        "availableDate": "Available now",
+        "type": "Apartment",
+        "purpose": "sale",
+        "image": "https:\/\/images.unsplash.com\/photo-1600047509807-ba8f99d2cdde?auto=format&fit=crop&w=1200&q=80",
+        "badges": [
+            "For sale",
+            "First-time buyer",
+            "Near retail"
+        ],
+        "summary": "Bright first-home option with efficient layout, secure access control and fast route to city center.",
+        "features": [
+            "Balcony",
+            "Storage room",
+            "Visitor parking",
+            "Fitted wardrobes"
+        ],
+        "askingPrice": 189000
+    }
+]
