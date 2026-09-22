@@ -136,10 +136,14 @@ CREATE TABLE IF NOT EXISTS tenancies (
     application_id INT UNSIGNED NOT NULL,
     status VARCHAR(40) NOT NULL DEFAULT 'active',
     start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    term VARCHAR(120) NOT NULL DEFAULT '',
     monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
     service_charge INT UNSIGNED NOT NULL DEFAULT 0,
     security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    notes TEXT NULL,
     created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
     PRIMARY KEY (id),
     KEY tenancies_user_idx (user_id),
     KEY tenancies_application_idx (application_id),
@@ -163,6 +167,7 @@ CREATE TABLE IF NOT EXISTS payments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id INT UNSIGNED NOT NULL,
     property_id INT UNSIGNED NOT NULL,
+    unit_id INT UNSIGNED NOT NULL DEFAULT 0,
     application_id INT UNSIGNED NOT NULL DEFAULT 0,
     tenancy_id INT UNSIGNED NOT NULL DEFAULT 0,
     amount INT UNSIGNED NOT NULL DEFAULT 0,
@@ -172,9 +177,11 @@ CREATE TABLE IF NOT EXISTS payments (
     description VARCHAR(190) NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL,
     PRIMARY KEY (id),
+    KEY payments_unit_idx (unit_id),
     KEY payments_tenancy_idx (tenancy_id),
     KEY payments_application_idx (application_id),
-    KEY payments_user_idx (user_id)
+    KEY payments_user_idx (user_id),
+    KEY payments_property_idx (property_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS purchase_offers (
@@ -236,6 +243,70 @@ CREATE TABLE IF NOT EXISTS maintenance_tickets (
     KEY maintenance_tickets_status_idx (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS mall_shops (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    shop_number VARCHAR(120) NOT NULL DEFAULT '',
+    shop_name VARCHAR(190) NOT NULL DEFAULT '',
+    status VARCHAR(40) NOT NULL DEFAULT 'vacant',
+    tenure VARCHAR(120) NOT NULL DEFAULT '',
+    start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY mall_shops_property_idx (property_id),
+    KEY mall_shops_user_idx (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS residential_units (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    block VARCHAR(80) NOT NULL DEFAULT '',
+    unit_number VARCHAR(120) NOT NULL DEFAULT '',
+    status VARCHAR(40) NOT NULL DEFAULT 'vacant',
+    tenure VARCHAR(120) NOT NULL DEFAULT '',
+    start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY residential_units_property_idx (property_id),
+    KEY residential_units_user_idx (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS apartment_flats (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    block VARCHAR(80) NOT NULL DEFAULT '',
+    floor VARCHAR(40) NOT NULL DEFAULT '',
+    flat_number VARCHAR(120) NOT NULL DEFAULT '',
+    status VARCHAR(40) NOT NULL DEFAULT 'vacant',
+    tenure VARCHAR(120) NOT NULL DEFAULT '',
+    start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY apartment_flats_property_idx (property_id),
+    KEY apartment_flats_user_idx (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS saved_searches (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id INT UNSIGNED NOT NULL,
@@ -251,4 +322,134 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     PRIMARY KEY (id),
     KEY saved_searches_user_idx (user_id),
     KEY saved_searches_purpose_idx (purpose)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS unit_history (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    unit_label VARCHAR(190) NOT NULL DEFAULT '',
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    user_name VARCHAR(150) NOT NULL DEFAULT '',
+    user_email VARCHAR(190) NOT NULL DEFAULT '',
+    user_phone VARCHAR(80) NOT NULL DEFAULT '',
+    occupancy_status VARCHAR(40) NOT NULL DEFAULT 'active',
+    tenure VARCHAR(120) NOT NULL DEFAULT '',
+    monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    notes TEXT NULL,
+    ended_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY unit_history_unit_idx (unit_table, unit_id),
+    KEY unit_history_property_idx (property_id),
+    KEY unit_history_user_idx (user_id),
+    KEY unit_history_status_idx (occupancy_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tenure_history (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL DEFAULT 0,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    unit_label VARCHAR(190) NOT NULL DEFAULT '',
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    user_name VARCHAR(150) NOT NULL DEFAULT '',
+    user_email VARCHAR(190) NOT NULL DEFAULT '',
+    user_phone VARCHAR(80) NOT NULL DEFAULT '',
+    tenure VARCHAR(120) NOT NULL DEFAULT '',
+    monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    start_date VARCHAR(120) NOT NULL DEFAULT '',
+    end_date VARCHAR(120) NOT NULL DEFAULT '',
+    amount_due INT UNSIGNED NOT NULL DEFAULT 0,
+    amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+    balance_carried INT NOT NULL DEFAULT 0,
+    status VARCHAR(40) NOT NULL DEFAULT 'renewed',
+    notes TEXT NULL,
+    closed_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY tenure_history_unit_idx (unit_table, unit_id),
+    KEY tenure_history_property_idx (property_id),
+    KEY tenure_history_user_idx (user_id),
+    KEY tenure_history_status_idx (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_charge_history (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    service_charge INT UNSIGNED NOT NULL DEFAULT 0,
+    effective_from DATE NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY sc_history_prop_date (property_id, effective_from),
+    KEY sc_history_property_idx (property_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_charge_allocations (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    payment_id INT UNSIGNED NOT NULL,
+    property_id INT UNSIGNED NOT NULL,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    service_month CHAR(7) NOT NULL DEFAULT '',
+    rate_used INT UNSIGNED NOT NULL DEFAULT 0,
+    amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY sc_alloc_payment_idx (payment_id),
+    KEY sc_alloc_unit_idx (unit_table, unit_id),
+    KEY sc_alloc_month_idx (unit_table, unit_id, service_month)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rent_reminders (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    property_id INT UNSIGNED NOT NULL DEFAULT 0,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    occupant_name VARCHAR(150) NOT NULL DEFAULT '',
+    to_email VARCHAR(190) NOT NULL DEFAULT '',
+    subject VARCHAR(190) NOT NULL DEFAULT '',
+    body_html TEXT NULL,
+    body_text TEXT NULL,
+    amount_expected INT UNSIGNED NOT NULL DEFAULT 0,
+    amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+    balance_due INT NOT NULL DEFAULT 0,
+    status VARCHAR(40) NOT NULL DEFAULT 'pending',
+    sent_at DATETIME NULL,
+    error_message VARCHAR(255) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY rent_reminders_unit_idx (unit_table, unit_id),
+    KEY rent_reminders_user_idx (user_id),
+    KEY rent_reminders_status_idx (status),
+    KEY rent_reminders_property_idx (property_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS email_logs (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    recipient_email VARCHAR(190) NOT NULL,
+    recipient_name VARCHAR(150) NOT NULL DEFAULT '',
+    subject VARCHAR(190) NOT NULL DEFAULT '',
+    body_html TEXT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    error_message VARCHAR(255) NOT NULL DEFAULT '',
+    context VARCHAR(60) NOT NULL DEFAULT '',
+    context_id INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    sent_at DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY email_logs_recipient_idx (recipient_email),
+    KEY email_logs_status_idx (status),
+    KEY email_logs_context_idx (context, context_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

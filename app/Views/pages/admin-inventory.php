@@ -54,6 +54,20 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <span class="type-pill"><?= htmlspecialchars((string) ucfirst($property['status']), ENT_QUOTES, 'UTF-8') ?></span>
                     </div>
                     <div class="admin-table-actions">
+                        <a class="admin-icon-button admin-icon-button-edit" href="<?= htmlspecialchars(app_url('admin-units', array('property_id' => $property['id'])), ENT_QUOTES, 'UTF-8') ?>" aria-label="Manage units" title="Manage shops, flats or units">
+                            <?php
+                                $typeKey = strtolower((string) $property['type']);
+
+                                if (strpos($typeKey, 'mall') !== false) {
+                                    $unitLinkLabel = 'Shops';
+                                } elseif (strpos($typeKey, 'apartment') !== false) {
+                                    $unitLinkLabel = 'Flats';
+                                } else {
+                                    $unitLinkLabel = 'Units';
+                                }
+                            ?>
+                            <?= htmlspecialchars($unitLinkLabel, ENT_QUOTES, 'UTF-8') ?>
+                        </a>
                         <a class="admin-icon-button admin-icon-button-edit" href="<?= htmlspecialchars(app_url('admin-properties', array('edit_property' => $property['id'])), ENT_QUOTES, 'UTF-8') ?>" aria-label="Edit listing" title="Edit listing">
                             <!-- Pencil / edit icon -->
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

@@ -23,4 +23,17 @@ final class Flash
 
         return $messages;
     }
+
+    public static function keep(array $data)
+    {
+        $_SESSION['flash_old_input'] = $data;
+    }
+
+    public static function old()
+    {
+        $data = isset($_SESSION['flash_old_input']) ? $_SESSION['flash_old_input'] : array();
+        unset($_SESSION['flash_old_input']);
+
+        return $data;
+    }
 }

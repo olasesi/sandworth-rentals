@@ -75,7 +75,7 @@ $siteSettings = isset($siteSettings) && is_array($siteSettings) ? $siteSettings 
                     <span class="type-pill" style="background:var(--line-light);color:var(--muted);border-color:var(--line)"><?= count($gallery) ?> photos</span>
                 <?php endif; ?>
                 <?php if (! empty($listing['petFriendly']) && $isRent): ?>
-                    <span class="type-pill" style="background:#E3F5EE;color:#00875A;border-color:#00875A">Pet-friendly</span>
+                    <span class="type-pill pill-active">Pet-friendly</span>
                 <?php endif; ?>
             </div>
 

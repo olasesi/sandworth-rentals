@@ -6,7 +6,11 @@
 /** @var array $offers */
 /** @var array $maintenanceTickets */
 /** @var array $messages */
+/** @var array $dueUnits */
+/** @var int $dueUnitsCount */
 $activeAdminPage = 'overview';
+$dueUnitsCount = isset($dueUnitsCount) ? (int) $dueUnitsCount : 0;
+$dueUnits = isset($dueUnits) ? $dueUnits : array();
 $adminTitle = 'Phase 1 operations desk';
 $adminDescription = 'Run housing activity from one admin workspace: approvals, tours, offers, maintenance, and customer conversations.';
 require __DIR__ . '/_admin_phase1_header.php';
@@ -31,7 +35,18 @@ require __DIR__ . '/_admin_phase1_header.php';
         </form>
     </div>
 
+    <?php if ($dueUnitsCount > 0): ?>
+        <div class="admin-alert-banner">
+            <p><strong><?= (int) $dueUnitsCount ?> unit(s) with outstanding rent balances.</strong> <a href="<?= htmlspecialchars(app_url('admin-rent-due'), ENT_QUOTES, 'UTF-8') ?>">Review and send reminders</a></p>
+        </div>
+    <?php endif; ?>
+
     <section class="admin-overview-grid">
+        <a class="detail-card admin-shortcut-card" href="<?= htmlspecialchars(app_url('admin-rent-due'), ENT_QUOTES, 'UTF-8') ?>">
+            <span class="eyebrow">Rent due<?= $dueUnitsCount > 0 ? ' (' . (int) $dueUnitsCount . ')' : '' ?></span>
+            <h2>Outstanding balances</h2>
+            <p>View every occupied unit where rent is owed and send payment reminders by email.</p>
+        </a>
         <a class="detail-card admin-shortcut-card" href="<?= htmlspecialchars(app_url('admin-applications'), ENT_QUOTES, 'UTF-8') ?>">
             <span class="eyebrow">Applications</span>
             <h2>Review and approve renters</h2>
@@ -61,6 +76,11 @@ require __DIR__ . '/_admin_phase1_header.php';
             <span class="eyebrow">Properties</span>
             <h2>Keep inventory current</h2>
             <p>Update availability, pricing, images, and listing details that feed every public workflow.</p>
+        </a>
+        <a class="detail-card admin-shortcut-card" href="<?= htmlspecialchars(app_url('admin-tenants'), ENT_QUOTES, 'UTF-8') ?>">
+            <span class="eyebrow">Tenants</span>
+            <h2>Register and manage tenants</h2>
+            <p>Record each tenant's tenure dates, rent terms, and every amount paid across the tenancy timeline.</p>
         </a>
     </section>
 

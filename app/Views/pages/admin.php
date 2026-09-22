@@ -55,6 +55,12 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             <p>Approve applicants and move them into payment and tenancy record.</p>
         </a>
 
+        <a class="detail-card admin-shortcut-card" href="<?= htmlspecialchars(app_url('admin-tenants'), ENT_QUOTES, 'UTF-8') ?>">
+            <span class="eyebrow">Tenants</span>
+            <h2>Register &amp; manage tenants</h2>
+            <p>Record each tenant, their property, tenure dates, rent, and the full payment timeline.</p>
+        </a>
+
         <a class="detail-card admin-shortcut-card" href="<?= htmlspecialchars(app_url('admin-tours'), ENT_QUOTES, 'UTF-8') ?>">
             <span class="eyebrow">Tour desk</span>
             <h2>Manage tours and slot availability</h2>

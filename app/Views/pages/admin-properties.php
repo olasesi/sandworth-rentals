@@ -32,6 +32,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             </div>
             <div class="admin-page-actions">
                 <?php if ($editProperty): ?>
+                    <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-units', array('property_id' => $editProperty['id'])), ENT_QUOTES, 'UTF-8') ?>">Manage shops / flats / units</a>
                     <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-properties'), ENT_QUOTES, 'UTF-8') ?>">Load new property</a>
                 <?php endif; ?>
                 <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-inventory'), ENT_QUOTES, 'UTF-8') ?>">View loaded properties</a>

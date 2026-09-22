@@ -1,1 +1,4 @@
-/config
+/config/
+/vendor/
+storage/sessions/
+storage/database.sqlite

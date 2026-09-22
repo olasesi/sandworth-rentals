@@ -1,0 +1,7 @@
+{
+    "name": "sandworth/erp",
+    "description": "Sandworth Homes ERP",
+    "require": {
+        "phpmailer/phpmailer": "6.9"
+    }
+}

@@ -18,6 +18,7 @@ require_once __DIR__ . '/app/Core/Flash.php';
 require_once __DIR__ . '/app/Core/Database.php';
 require_once __DIR__ . '/app/Core/Platform.php';
 require_once __DIR__ . '/app/Core/Auth.php';
+require_once __DIR__ . '/app/Core/Mailer.php';
 require_once __DIR__ . '/app/Support/helpers.php';
 
 $dbConfig = require __DIR__ . '/config/database.php';
@@ -792,6 +793,7 @@ $router->get('admin', function () use ($platform) {
     $offers = $platform->allPurchaseOffers(array('limit' => 3));
     $maintenanceTickets = $platform->allMaintenanceTickets(array('limit' => 3));
     $messages = $platform->allMessages(array('limit' => 3));
+    $dueUnits = $platform->dueRentUnits();
 
     App\Core\View::render('pages/admin-phase1', array(
         'pageTitle' => 'Admin Console | Sandworth Homes',
@@ -803,6 +805,8 @@ $router->get('admin', function () use ($platform) {
         'offers' => $offers,
         'maintenanceTickets' => $maintenanceTickets,
         'messages' => $messages,
+        'dueUnits' => $dueUnits,
+        'dueUnitsCount' => count($dueUnits),
     ));
 });
 
@@ -857,8 +861,7 @@ $router->get('admin-applications', function () use ($platform) {
     ));
 });
 
-$router->get('admin-tours', function () use ($platform) {
-    $viewer = App\Core\Auth::user($platform);
+$router->get('admin-tours', function () use ($platform) {    $viewer = App\Core\Auth::user($platform);
     app_require_admin($viewer);
 
     $properties = $platform->allProperties();
@@ -937,6 +940,161 @@ $router->get('admin-seo', function () use ($platform) {
         'activePage' => 'manager',
         'portfolio' => $platform->adminPortfolio(),
         'siteSettings' => $platform->siteSettings(),
+    ));
+});
+
+$router->get('admin-tenants', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $editTenant = null;
+    $addedTenant = null;
+    $viewTenant = null;
+
+    if (isset($_GET['just_added']) && $_GET['just_added'] !== '' && isset($_GET['unit_table']) && $_GET['unit_table'] !== '') {
+        $addedTenant = $platform->findTenantRegistration((string) $_GET['unit_table'], (int) $_GET['just_added']);
+
+        if (! $addedTenant) {
+            App\Core\Flash::add('error', 'That tenant registration could not be found.');
+            app_redirect('admin-tenants');
+        }
+    } elseif (isset($_GET['edit_tenant']) && $_GET['edit_tenant'] !== '' && isset($_GET['unit_table']) && $_GET['unit_table'] !== '') {
+        $editTenant = $platform->findTenantRegistration((string) $_GET['unit_table'], (int) $_GET['edit_tenant']);
+
+        if (! $editTenant) {
+            App\Core\Flash::add('error', 'That tenant registration could not be opened for editing.');
+            app_redirect('admin-tenants');
+        }
+    } elseif (isset($_GET['view_tenant']) && $_GET['view_tenant'] !== '' && isset($_GET['unit_table']) && $_GET['unit_table'] !== '') {
+        $viewTenant = $platform->findTenantRegistration((string) $_GET['unit_table'], (int) $_GET['view_tenant']);
+
+        if (! $viewTenant) {
+            App\Core\Flash::add('error', 'That tenant registration could not be found.');
+            app_redirect('admin-tenants');
+        }
+    }
+
+    $loadTenantSchedule = function ($tenantRow) use ($platform) {
+        if (! $tenantRow) {
+            return $tenantRow;
+        }
+
+        $tenantRow['balances'] = $platform->registrationBalanceBreakdown($tenantRow);
+        $tenantRow['tenureHistory'] = $platform->tenureHistoryForRegistration($tenantRow['unitTable'], $tenantRow['unitId']);
+        $tenantRow['scSummary'] = $platform->serviceChargeSummaryForRegistration($tenantRow);
+        $tenantRow['rentSchedule'] = $platform->rentScheduleForRegistration($tenantRow);
+        $tenantRow['rentYears'] = $platform->rentYearsForRegistration($tenantRow);
+        $tenantRow['priorTenures'] = array();
+        $tenantRow['documents'] = $platform->findTenancyDocumentsForRegistration($tenantRow['unitTable'], $tenantRow['unitId']);
+
+        foreach ($tenantRow['tenureHistory'] as $historyRow) {
+            $tenantRow['priorTenures'][] = array(
+                'history' => $historyRow,
+                'breakdown' => $platform->priorTenureBreakdown($historyRow),
+            );
+        }
+
+        return $tenantRow;
+    };
+
+    $addedTenant = $loadTenantSchedule($addedTenant);
+    $editTenant = $loadTenantSchedule($editTenant);
+    $viewTenant = $loadTenantSchedule($viewTenant);
+
+    $filters = array();
+
+    if (isset($_GET['status']) && $_GET['status'] !== '') {
+        $filters['status'] = $_GET['status'];
+    }
+
+    if (isset($_GET['owing']) && $_GET['owing'] !== '') {
+        $filters['owing'] = 1;
+    }
+
+    if (isset($_GET['q']) && trim((string) $_GET['q']) !== '') {
+        $filters['q'] = trim((string) $_GET['q']);
+    }
+
+    $properties = $platform->allProperties();
+    $propertyCharges = array();
+
+    foreach ($properties as $propertyRow) {
+        $propertyCharges[(int) $propertyRow['id']] = $platform->propertyCurrentCharges($propertyRow);
+    }
+
+    $tenantCounts = $platform->tenantRegistrationCounts();
+    $requestedPropertyId = isset($_GET['property_id']) ? (int) $_GET['property_id'] : 0;
+
+    $activePropertyId = 0;
+    foreach ($properties as $property) {
+        if ((int) $property['id'] === $requestedPropertyId) {
+            $activePropertyId = $requestedPropertyId;
+            break;
+        }
+    }
+
+    if ($activePropertyId <= 0) {
+        foreach ($properties as $property) {
+            if (isset($tenantCounts[(int) $property['id']]) && $tenantCounts[(int) $property['id']] > 0) {
+                $activePropertyId = (int) $property['id'];
+                break;
+            }
+        }
+    }
+
+    if ($activePropertyId <= 0 && $properties !== array()) {
+        $activePropertyId = (int) $properties[0]['id'];
+    }
+
+    if ($activePropertyId > 0 && ! isset($filters['q'])) {
+        $filters['property_id'] = $activePropertyId;
+    }
+
+    $perPage = 50;
+    $page = isset($_GET['pgn']) ? max(1, (int) $_GET['pgn']) : 1;
+    $allTenants = $platform->allTenantRegistrations($filters);
+    $totalTenants = count($allTenants);
+    $totalPages = max(1, (int) ceil($totalTenants / $perPage));
+    $page = min($page, $totalPages);
+    $offset = ($page - 1) * $perPage;
+    $tenants = array_slice($allTenants, $offset, $perPage);
+
+    foreach ($tenants as $tenantIndex => $tenantRow) {
+        $tenants[$tenantIndex]['balances'] = $platform->registrationBalanceBreakdown($tenantRow);
+        $tenants[$tenantIndex]['scSummary'] = $platform->serviceChargeSummaryForRegistration($tenantRow);
+    }
+
+    $pageMode = 'register';
+    if ($addedTenant) {
+        $pageMode = 'summary';
+    } elseif ($editTenant) {
+        $pageMode = 'edit';
+    } elseif ($viewTenant) {
+        $pageMode = 'summary';
+    }
+
+    App\Core\View::render('pages/admin-tenants', array(
+        'pageTitle' => ($editTenant ? 'Edit Tenant' : ($viewTenant ? 'Tenant Details' : ($addedTenant ? 'Tenant Registered' : 'Tenants'))) . ' | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'properties' => $properties,
+        'propertyCharges' => $propertyCharges,
+        'tenantCounts' => $tenantCounts,
+        'activePropertyId' => $activePropertyId,
+        'tenants' => $tenants,
+        'totalTenants' => $totalTenants,
+        'page' => $page,
+        'perPage' => $perPage,
+        'totalPages' => $totalPages,
+        'editTenant' => $editTenant,
+        'addedTenant' => $addedTenant,
+        'viewTenant' => $viewTenant,
+        'pageMode' => $pageMode,
+        'oldInput' => App\Core\Flash::old(),
+        'activeStatusFilter' => isset($filters['status']) ? $filters['status'] : '',
+        'activeOwingFilter' => isset($filters['owing']) ? '1' : '',
+        'filterCounts' => $platform->tenantFilterCounts($filters),
+        'searchQuery' => isset($_GET['q']) ? trim((string) $_GET['q']) : '',
     ));
 });
 
@@ -1046,6 +1204,402 @@ $router->post('application-approve', function () use ($platform) {
 
     App\Core\Flash::add('success', 'Application approved. The tenant can now pay online and move into the tenancy app.');
     app_redirect('admin-applications');
+});
+
+$router->post('admin-tenant-save', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    list($tenant, $error) = $platform->saveTenantRegistrationByAdmin($unitTable, $unitId, $_POST, $viewer, $_FILES);
+
+    if (! $tenant) {
+        App\Core\Flash::keep($_POST);
+        App\Core\Flash::add('error', $error);
+
+        if ($unitId > 0 && $unitTable !== '') {
+            app_redirect('admin-tenants', array('edit_tenant' => $unitId, 'unit_table' => $unitTable));
+        }
+
+        app_redirect('admin-tenants');
+    }
+
+    App\Core\Flash::add('success', 'Tenant registration for ' . $tenant['user']['name'] . ' was saved successfully.');
+
+    if (isset($tenant['documentError']) && $tenant['documentError'] !== '') {
+        App\Core\Flash::add('info', $tenant['documentError']);
+    }
+
+    if ($unitId <= 0) {
+        app_redirect('admin-tenants', array('just_added' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    app_redirect('admin-tenants');
+});
+
+$router->post('admin-tenant-renew', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    list($tenant, $error) = $platform->renewTenantTenureByAdmin($unitTable, $unitId, $_POST, $viewer);
+
+    if (! $tenant) {
+        App\Core\Flash::keep($_POST);
+        App\Core\Flash::add('error', $error);
+        app_redirect('admin-tenants', array('view_tenant' => $unitId, 'unit_table' => $unitTable, 'renew' => 1));
+    }
+
+    App\Core\Flash::add('success', 'Tenure for ' . $tenant['user']['name'] . ' was renewed. Any outstanding balance was carried into the new tenure.');
+    app_redirect('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+});
+
+$router->get('admin-tenant-payment-new', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_GET['unit_table']) ? (string) $_GET['unit_table'] : '';
+    $unitId = isset($_GET['unit_id']) ? (int) $_GET['unit_id'] : 0;
+    $payType = in_array((isset($_GET['type']) ? (string) $_GET['type'] : ''), array('rent', 'service_charge', 'deposit', 'other'), true)
+        ? (string) $_GET['type']
+        : 'rent';
+
+    $registration = $platform->findTenantRegistration($unitTable, $unitId);
+
+    if (! $registration) {
+        App\Core\Flash::add('error', 'That tenant registration could not be found.');
+        app_redirect('admin-tenants');
+    }
+
+    $registration['balances'] = $platform->registrationBalanceBreakdown($registration);
+    $registration['tenureHistory'] = $platform->tenureHistoryForRegistration($registration['unitTable'], $registration['unitId']);
+    $registration['scSummary'] = $platform->serviceChargeSummaryForRegistration($registration);
+
+    App\Core\View::render('pages/admin-payment-new', array(
+        'pageTitle' => 'Record Payment | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'registration' => $registration,
+        'payType' => $payType,
+        'oldInput' => App\Core\Flash::old(),
+    ));
+});
+
+$router->post('admin-tenant-payment', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    list($tenant, $error) = $platform->addUnitPaymentByAdmin($unitTable, $unitId, $_POST, $viewer);
+    if (! $tenant) {
+        App\Core\Flash::add('error', $error);
+        App\Core\Flash::keep($_POST);
+        if (isset($_POST['view_tenant']) && $_POST['view_tenant'] !== '') {
+            app_redirect('admin-tenant-payment-new', array('unit_table' => $unitTable, 'unit_id' => $unitId, 'type' => (isset($_POST['charge_type']) ? (string) $_POST['charge_type'] : 'rent')));
+        }
+        app_redirect('admin-tenants');
+    }
+
+    App\Core\Flash::add('success', 'Payment was posted to the tenant timeline.');
+
+    if (isset($_POST['just_added']) && $_POST['just_added'] !== '') {
+        app_redirect('admin-tenants', array('just_added' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    if (isset($_POST['view_tenant']) && $_POST['view_tenant'] !== '') {
+        app_redirect('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    app_redirect('admin-tenants', array('edit_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+});
+
+$router->post('admin-tenant-payment-delete', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    $paymentId = isset($_POST['payment_id']) ? (int) $_POST['payment_id'] : 0;
+    list($tenant, $error) = $platform->deleteUnitPaymentByAdmin($paymentId, $unitTable, $unitId);
+
+    if (! $tenant) {
+        App\Core\Flash::add('error', $error);
+        app_redirect('admin-tenants');
+    }
+
+    App\Core\Flash::add('success', 'Payment was removed from the tenant timeline.');
+
+    if (isset($_POST['just_added']) && $_POST['just_added'] !== '') {
+        app_redirect('admin-tenants', array('just_added' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    if (isset($_POST['view_tenant']) && $_POST['view_tenant'] !== '') {
+        app_redirect('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    app_redirect('admin-tenants', array('edit_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+});
+
+$router->get('admin-charges', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $properties = $platform->allProperties();
+    $charges = array();
+    foreach ($properties as $property) {
+        $charges[(int) $property['id']] = array(
+            'current' => $platform->propertyCurrentCharges($property),
+            'history' => $platform->serviceChargeHistoryForProperty((int) $property['id']),
+        );
+    }
+
+    App\Core\View::render('pages/admin-charges', array(
+        'pageTitle' => 'Rent & Service Charges | Sandworth Homes',
+        'activePage' => 'charges',
+        'viewer' => $viewer,
+        'portfolio' => $platform->adminPortfolio(),
+        'properties' => $properties,
+        'charges' => $charges,
+        'oldInput' => App\Core\Flash::old(),
+    ));
+});
+
+$router->post('admin-charge-update', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $propertyId = isset($_POST['property_id']) ? (int) $_POST['property_id'] : 0;
+    $field = isset($_POST['field']) ? (string) $_POST['field'] : '';
+    $property = $platform->findProperty($propertyId);
+
+    if (! $property) {
+        App\Core\Flash::add('error', 'That property could not be found.');
+        app_redirect('admin-charges');
+    }
+
+    if ($field === 'service_charge') {
+        $amount = isset($_POST['amount']) ? trim((string) $_POST['amount']) : '';
+        $effectiveFrom = isset($_POST['effective_from']) ? trim((string) $_POST['effective_from']) : '';
+        list($updated, $error) = $platform->setPropertyServiceCharge($propertyId, $amount, $effectiveFrom);
+
+        if ($error) {
+            App\Core\Flash::add('error', $error);
+            App\Core\Flash::keep($_POST);
+            app_redirect('admin-charges');
+        }
+
+        App\Core\Flash::add('success', 'Service charge was updated. Rate history has been recorded.');
+        app_redirect('admin-charges');
+    }
+
+    if ($field === 'rent') {
+        $amount = isset($_POST['annual_rent']) ? trim((string) $_POST['annual_rent']) : '';
+        list($updated, $error) = $platform->setPropertyRent($propertyId, $amount);
+
+        if ($error) {
+            App\Core\Flash::add('error', $error);
+            App\Core\Flash::keep($_POST);
+            app_redirect('admin-charges');
+        }
+
+        App\Core\Flash::add('success', 'Annual rent was updated. This will apply to new and renewed tenancies only.');
+        app_redirect('admin-charges');
+    }
+
+    App\Core\Flash::add('error', 'Unknown field type supplied.');
+    app_redirect('admin-charges');
+});
+
+$router->get('admin-units', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $propertyId = isset($_GET['property_id']) ? (int) $_GET['property_id'] : 0;
+    $page = isset($_GET['pgn']) ? max(1, (int) $_GET['pgn']) : 1;
+    $propertyUnits = $platform->propertyUnits($propertyId, $page, 25);
+
+    if (! $propertyUnits['property']) {
+        App\Core\Flash::add('error', 'That property could not be found.');
+        app_redirect('admin-inventory');
+    }
+
+    $editUnit = null;
+
+    if (isset($_GET['edit_unit']) && $_GET['edit_unit'] !== '') {
+        $editUnit = $platform->findPropertyUnit($propertyId, (int) $_GET['edit_unit']);
+
+        if (! $editUnit) {
+            App\Core\Flash::add('error', 'That unit could not be opened for editing.');
+            app_redirect('admin-units', array('property_id' => $propertyId));
+        }
+    }
+
+    App\Core\View::render('pages/admin-units', array(
+        'pageTitle' => 'Manage Units | ' . $propertyUnits['property']['title'] . ' | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'property' => $propertyUnits['property'],
+        'units' => $propertyUnits['units'],
+        'unitTable' => $propertyUnits['unitTable'],
+        'editUnit' => $editUnit,
+        'tenantUsers' => $platform->tenantUserOptions(),
+        'page' => $propertyUnits['page'],
+        'perPage' => $propertyUnits['perPage'],
+        'totalUnits' => $propertyUnits['totalUnits'],
+        'totalPages' => $propertyUnits['totalPages'],
+    ));
+});
+
+$router->post('admin-unit-save', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $propertyId = isset($_POST['property_id']) ? (int) $_POST['property_id'] : 0;
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    list($unit, $error) = $platform->savePropertyUnitByAdmin($propertyId, $unitId, $_POST, $viewer);
+
+    $property = $platform->findProperty($propertyId);
+
+    if (! $unit) {
+        App\Core\Flash::add('error', $error);
+        app_redirect('admin-units', $unitId > 0 ? array('property_id' => $propertyId, 'edit_unit' => $unitId) : array('property_id' => $propertyId));
+    }
+
+    App\Core\Flash::add('success', ($unitId > 0 ? 'The unit was updated' : 'The unit was added') . ' for ' . ($property ? $property['title'] : 'the property') . '.');
+    app_redirect('admin-units', array('property_id' => $propertyId));
+});
+
+$router->post('admin-unit-delete', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $propertyId = isset($_POST['property_id']) ? (int) $_POST['property_id'] : 0;
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    list($unit, $error) = $platform->deletePropertyUnitByAdmin($propertyId, $unitId);
+
+    if (! $unit) {
+        App\Core\Flash::add('error', $error);
+        app_redirect('admin-units', array('property_id' => $propertyId, 'edit_unit' => $unitId));
+    }
+
+    App\Core\Flash::add('success', 'The unit was removed from the property.');
+    app_redirect('admin-units', array('property_id' => $propertyId));
+});
+
+$router->get('admin-unit-detail', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $propertyId = isset($_GET['property_id']) ? (int) $_GET['property_id'] : 0;
+    $unitId = isset($_GET['unit_id']) ? (int) $_GET['unit_id'] : 0;
+
+    if ($propertyId <= 0 || $unitId <= 0) {
+        App\Core\Flash::add('error', 'That unit could not be found.');
+        app_redirect('admin-inventory');
+    }
+
+    $property = $platform->findProperty($propertyId);
+
+    if (! $property) {
+        App\Core\Flash::add('error', 'That property could not be found.');
+        app_redirect('admin-inventory');
+    }
+
+    $unit = $platform->findPropertyUnit($propertyId, $unitId);
+
+    if (! $unit) {
+        App\Core\Flash::add('error', 'That unit could not be found.');
+        app_redirect('admin-units', array('property_id' => $propertyId));
+    }
+
+    $unitTable = $platform->unitTableForProperty($property);
+    $unitLabel = $platform->unitDisplayLabel($unitTable, $unit);
+    $billing = $platform->unitBillingSummary($unitTable, $unit);
+    $history = $platform->unitHistoryForUnit($unitTable, $unitId);
+    $payments = $platform->paymentsForUnit($propertyId, $unitId);
+
+    App\Core\View::render('pages/admin-unit-detail', array(
+        'pageTitle' => $unitLabel . ' | ' . $property['title'] . ' | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'property' => $property,
+        'unit' => $unit,
+        'unitTable' => $unitTable,
+        'unitLabel' => $unitLabel,
+        'billing' => $billing,
+        'history' => $history,
+        'payments' => $payments,
+    ));
+});
+
+$router->get('admin-rent-due', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $dueUnits = $platform->dueRentUnits();
+    $recentLogs = $platform->recentEmailLogs(20);
+
+    App\Core\View::render('pages/admin-rent-due', array(
+        'pageTitle' => 'Rent Due | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'dueUnits' => $dueUnits,
+        'recentLogs' => $recentLogs,
+    ));
+});
+
+$router->post('admin-rent-reminder-send', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    $returnTo = isset($_POST['return_to']) && trim($_POST['return_to']) !== '' ? trim($_POST['return_to']) : 'admin-rent-due';
+
+    list($result, $error) = $platform->sendRentReminder($unitTable, $unitId);
+
+    if (! $result) {
+        App\Core\Flash::add('error', $error ?: 'The reminder could not be sent.');
+    } else {
+        $status = $result['status'] === 'sent' ? 'sent' : 'queued';
+        App\Core\Flash::add('success', 'Rent reminder was ' . $status . '.');
+    }
+
+    if ($returnTo === 'admin-unit-detail' && isset($_POST['property_id']) && (int) $_POST['property_id'] > 0) {
+        app_redirect('admin-unit-detail', array('property_id' => (int) $_POST['property_id'], 'unit_id' => $unitId));
+    }
+
+    app_redirect('admin-rent-due');
+});
+
+$router->post('admin-rent-reminder-send-all', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $dueUnits = $platform->dueRentUnits();
+    $items = array();
+
+    foreach ($dueUnits as $due) {
+        $items[] = array('unitTable' => $due['unitTable'], 'unitId' => $due['unit']['id']);
+    }
+
+    $counts = $platform->sendRentRemindersFor($items);
+
+    $summary = 'Reminders sent: ' . $counts['sent'] . '.';
+
+    if ($counts['failed'] > 0) {
+        $summary .= ' Failed: ' . $counts['failed'] . '.';
+    }
+
+    if ($counts['skipped'] > 0) {
+        $summary .= ' Skipped: ' . $counts['skipped'] . '.';
+    }
+
+    App\Core\Flash::add('success', $summary);
+    app_redirect('admin-rent-due');
 });
 
 $router->post('admin-tour-slot-create', function () use ($platform) {

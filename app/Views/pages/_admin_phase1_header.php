@@ -3,6 +3,7 @@ $activeAdminPage = isset($activeAdminPage) ? $activeAdminPage : 'overview';
 $adminTitle = isset($adminTitle) ? $adminTitle : 'Admin workspace';
 $adminDescription = isset($adminDescription) ? $adminDescription : 'Manage your platform from one clear operations desk.';
 $portfolio = isset($portfolio) ? $portfolio : array();
+$dueUnitsCount = isset($dueUnitsCount) ? (int) $dueUnitsCount : 0;
 ?>
 <section class="admin-header">
     <div class="admin-header-content">
@@ -17,6 +18,8 @@ $portfolio = isset($portfolio) ? $portfolio : array();
         <a class="<?= $activeAdminPage === 'offers' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-offers'), ENT_QUOTES, 'UTF-8') ?>">Offers</a>
         <a class="<?= $activeAdminPage === 'messages' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-messages'), ENT_QUOTES, 'UTF-8') ?>">Inbox</a>
         <a class="<?= $activeAdminPage === 'maintenance' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-maintenance'), ENT_QUOTES, 'UTF-8') ?>">Maintenance</a>
+        <a class="<?= $activeAdminPage === 'tenants' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-tenants'), ENT_QUOTES, 'UTF-8') ?>">Tenants</a>
+        <a class="<?= $activeAdminPage === 'rent-due' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-rent-due'), ENT_QUOTES, 'UTF-8') ?>">Rent due<?= $dueUnitsCount > 0 ? ' (' . (int) $dueUnitsCount . ')' : '' ?></a>
         <a class="<?= $activeAdminPage === 'properties' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-properties'), ENT_QUOTES, 'UTF-8') ?>">Properties</a>
         <a class="<?= $activeAdminPage === 'inventory' ? 'is-active' : '' ?>" href="<?= htmlspecialchars(app_url('admin-inventory'), ENT_QUOTES, 'UTF-8') ?>">Inventory</a>
     </div>
@@ -26,6 +29,10 @@ $portfolio = isset($portfolio) ? $portfolio : array();
     <article>
         <span>Active properties</span>
         <strong><?= isset($portfolio['activeProperties']) ? (int) $portfolio['activeProperties'] : 0 ?></strong>
+    </article>
+    <article>
+        <span>Rent due</span>
+        <strong><?= (int) $dueUnitsCount ?></strong>
     </article>
     <article>
         <span>Submitted applications</span>

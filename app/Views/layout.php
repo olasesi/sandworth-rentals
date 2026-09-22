@@ -279,7 +279,11 @@ if (isset($structuredData)) {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-    <link rel="stylesheet" href="<?= htmlspecialchars(app_asset_url('css/app.css'), ENT_QUOTES, 'UTF-8') ?>">
+    <?php
+    $appCssPath = function_exists('app_public_file_path') ? app_public_file_path('/public/assets/css/app.css') : null;
+    $appCssVersion = ($appCssPath && is_file($appCssPath)) ? filemtime($appCssPath) : '1';
+    ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars(app_asset_url('css/app.css') . '?v=' . $appCssVersion, ENT_QUOTES, 'UTF-8') ?>">
     <?php foreach ($seoStructuredData as $schema): ?>
         <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
     <?php endforeach; ?>
