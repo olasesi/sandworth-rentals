@@ -2,3 +2,9 @@
 /vendor/
 storage/sessions/
 storage/database.sqlite
+
+# leaked credentials / data dumps, removed from tracking
+achv/config/
+ollld/config/
+error_log
+/*.sql
