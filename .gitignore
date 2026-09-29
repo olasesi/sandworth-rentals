@@ -8,3 +8,6 @@ achv/config/
 ollld/config/
 error_log
 /*.sql
+
+# tenancy documents uploaded by tenants contain personal data
+/public/assets/uploads/tenant-documents/

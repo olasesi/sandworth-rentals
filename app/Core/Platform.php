@@ -48,6 +48,7 @@ final class Platform
         $this->ensureTenureHistoryTable();
         $this->ensureServiceChargeTables();
         $this->ensureTenancyDocumentsTable();
+        $this->ensureKeyCollectionsTable();
         $this->seedServiceChargeHistory();
 
         $table = 'tenancies';
@@ -89,6 +90,12 @@ final class Platform
 
             if (! isset($existing['security_deposit'])) {
                 $this->database->execute('ALTER TABLE `' . $table . '` ADD COLUMN `security_deposit` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `service_charge`');
+            }
+
+            foreach (array('legal_fee', 'vat_fee', 'subscription_form', 'toilet_fee') as $chargeColumn) {
+                if (! isset($existing[$chargeColumn])) {
+                    $this->database->execute('ALTER TABLE `' . $table . '` ADD COLUMN `' . $chargeColumn . '` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `security_deposit`');
+                }
             }
 
             foreach ($legacyColumns as $column) {
@@ -175,6 +182,32 @@ final class Platform
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
     }
 
+    private function ensureKeyCollectionsTable()
+    {
+        $this->database->execute('CREATE TABLE IF NOT EXISTS key_collections (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            property_id INT UNSIGNED NOT NULL DEFAULT 0,
+            unit_table VARCHAR(60) NOT NULL DEFAULT \'\',
+            unit_id INT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL DEFAULT 0,
+            payment_id INT UNSIGNED NOT NULL DEFAULT 0,
+            amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+            expected_rent INT UNSIGNED NOT NULL DEFAULT 0,
+            balance INT NOT NULL DEFAULT 0,
+            collected_at DATETIME NOT NULL,
+            collected_by INT UNSIGNED NOT NULL DEFAULT 0,
+            collector_name VARCHAR(150) NOT NULL DEFAULT \'\',
+            recipient_name VARCHAR(150) NOT NULL DEFAULT \'\',
+            keys_count INT UNSIGNED NOT NULL DEFAULT 1,
+            notes TEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY key_collect_unit_idx (unit_table, unit_id),
+            KEY key_collect_property_idx (property_id),
+            KEY key_collect_user_idx (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+    }
+
     private function ensureServiceChargeTables()
     {
         $this->database->execute('CREATE TABLE IF NOT EXISTS service_charge_history (
@@ -253,6 +286,10 @@ final class Platform
                 monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
                 service_charge INT UNSIGNED NOT NULL DEFAULT 0,
                 security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+                legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+                toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
                 notes TEXT NULL,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
@@ -273,6 +310,10 @@ final class Platform
                 monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
                 service_charge INT UNSIGNED NOT NULL DEFAULT 0,
                 security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+                legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+                toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
                 notes TEXT NULL,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
@@ -294,6 +335,10 @@ final class Platform
                 monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
                 service_charge INT UNSIGNED NOT NULL DEFAULT 0,
                 security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+                legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+                subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+                toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
                 notes TEXT NULL,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
@@ -2579,6 +2624,7 @@ final class Platform
 
         return 'SELECT \'' . $unitTable . '\' AS unit_table, t.id AS unit_id, t.property_id, t.user_id, t.status, '
             . 't.tenure, t.start_date, t.end_date, t.monthly_rent, t.service_charge, t.security_deposit, '
+            . 't.legal_fee, t.vat_fee, t.subscription_form, t.toilet_fee, '
             . 't.notes, t.created_at, t.updated_at, ' . $identity . ', '
             . 'u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.role AS user_role, '
             . 'p.title AS property_title, p.location AS property_location, p.type AS property_type '
@@ -2599,7 +2645,9 @@ final class Platform
 
         if (isset($filters['owing']) && $filters['owing']) {
             $registrations = array_values(array_filter($registrations, function ($registration) {
-                return $this->registrationOwingBalance($registration) > 0;
+                $balances = $this->registrationBalanceBreakdown($registration);
+
+                return (int) $balances['totalOwed'] > 0;
             }));
         }
 
@@ -2683,15 +2731,9 @@ final class Platform
                 $counts[$status]++;
             }
 
-            $key = (int) $row['property_id'] . ':' . (int) $row['unit_id'];
-            $registration = array(
-                'monthlyRent' => (int) $row['monthly_rent'],
-                'startDate' => (string) $row['start_date'],
-                'tenure' => (string) $row['tenure'],
-                'totalPaid' => isset($totals[$key]) ? $totals[$key] : 0,
-            );
+            $registration = $this->hydrateTenantRegistration($row, $totals);
 
-            if ($this->registrationOwingBalance($registration) > 0) {
+            if ((int) $this->registrationBalanceBreakdown($registration)['totalOwed'] > 0) {
                 $counts['owing']++;
             }
         }
@@ -2701,15 +2743,9 @@ final class Platform
 
     public function registrationOwingBalance(array $registration)
     {
-        $monthlyRent = isset($registration['monthlyRent']) ? (int) $registration['monthlyRent'] : 0;
-        $tenantMonths = $this->tenureMonths(isset($registration['tenure']) ? (string) $registration['tenure'] : '');
-        $monthsElapsed = $this->elapsedTenureMonths(isset($registration['startDate']) ? (string) $registration['startDate'] : '');
-        $monthsCovered = $tenantMonths > 0 ? $tenantMonths : max(1, $monthsElapsed);
-        $chargedMonths = min($monthsElapsed, $monthsCovered);
-        $expected = $monthlyRent * $chargedMonths;
-        $balance = $expected - (int) $registration['totalPaid'];
+        $balances = $this->registrationBalanceBreakdown($registration);
 
-        return $balance > 0 ? $balance : 0;
+        return max(0, (int) $balances['totalOwed']);
     }
 
     private function elapsedTenureMonths($startDate)
@@ -2733,27 +2769,78 @@ final class Platform
         return max(1, $years * 12 + $months);
     }
 
+    public function registrationAnnualRent(array $registration)
+    {
+        $property = isset($registration['property']) && is_array($registration['property']) ? $registration['property'] : null;
+
+        if ($property) {
+            $charges = $this->propertyCurrentCharges($property);
+
+            if ((int) $charges['annualRent'] > 0) {
+                return (int) $charges['annualRent'];
+            }
+        }
+
+        return isset($registration['monthlyRent']) ? (int) ((int) $registration['monthlyRent'] * 12) : 0;
+    }
+
     public function registrationBalanceBreakdown(array $registration)
     {
-        $monthlyRent = isset($registration['monthlyRent']) ? (int) $registration['monthlyRent'] : 0;
-        $tenantMonths = $this->tenureMonths(isset($registration['tenure']) ? (string) $registration['tenure'] : '');
-        $monthsElapsed = $this->elapsedTenureMonths(isset($registration['startDate']) ? (string) $registration['startDate'] : '');
-        $monthsCovered = $tenantMonths > 0 ? $tenantMonths : max(1, $monthsElapsed);
-        $chargedMonths = min($monthsElapsed, $monthsCovered);
-        $accrued = $monthlyRent * $chargedMonths;
+        $annualRent = $this->registrationAnnualRent($registration);
+        $startDate = trim(isset($registration['startDate']) ? (string) $registration['startDate'] : '');
+        $startTimestamp = $startDate !== '' ? @strtotime($startDate) : false;
+        $monthsElapsed = 0;
 
-        $startTimestamp = isset($registration['startDate']) && trim((string) $registration['startDate']) !== ''
-            ? @strtotime((string) $registration['startDate'])
-            : false;
+        if ($startTimestamp !== false && $startTimestamp > 0) {
+            $nowTs = time();
+
+            if ($nowTs >= $startTimestamp) {
+                $monthsElapsed = max(0, ((int) date('Y', $nowTs) - (int) date('Y', $startTimestamp)) * 12 + ((int) date('n', $nowTs) - (int) date('n', $startTimestamp)));
+            }
+        }
+
+        // A tenant who signs for N years owes the rent for the whole tenure, so the years on the
+        // tenancy are what is billed. Each year can still be looked at on its own in the breakdown.
+        $tenureMonths = $this->registrationTenureMonths($registration);
+        $tenureYears = $tenureMonths > 0 ? max(1, (int) round($tenureMonths / 12)) : 0;
+        $rentYearIndex = $annualRent > 0 ? (int) floor($monthsElapsed / 12) : 0;
+        $yearsBilled = $tenureYears > 0 ? $tenureYears : ($annualRent > 0 ? $rentYearIndex + 1 : 0);
+        $tenureTotal = $annualRent * $yearsBilled;
+        $rentYearStart = $startTimestamp === false ? false : @strtotime('+' . ($rentYearIndex * 12) . ' months', $startTimestamp);
+        $rentYearEnd = $rentYearStart === false ? false : @strtotime('+12 months', $rentYearStart);
+
         $payments = isset($registration['payments']) && is_array($registration['payments']) ? $registration['payments'] : array();
         $tenurePaid = 0;
 
         foreach ($payments as $payment) {
             $paidTimestamp = ! empty($payment['createdAt']) ? @strtotime((string) $payment['createdAt']) : false;
 
-            if ($startTimestamp === false || $paidTimestamp === false || $paidTimestamp >= $startTimestamp) {
-                $tenurePaid += (int) $payment['amount'];
+            if ($startTimestamp !== false && $paidTimestamp !== false && $paidTimestamp < $startTimestamp) {
+                continue;
             }
+
+            if (stripos((string) $payment['description'], 'rent') === false) {
+                continue;
+            }
+
+            $tenurePaid += (int) $payment['amount'];
+        }
+
+        // Payments settle the earliest rent year of the tenure first.
+        $firstYearOwed = 0;
+        $rentPaidThisYear = 0;
+        $allocated = 0;
+
+        for ($year = 0; $year < $yearsBilled; $year++) {
+            $available = max(0, $tenurePaid - $allocated);
+            $yearOwed = max(0, $annualRent - $available);
+
+            if ($year === 0) {
+                $firstYearOwed = $yearOwed;
+                $rentPaidThisYear = min($available, $annualRent);
+            }
+
+            $allocated += $annualRent;
         }
 
         $carried = $this->carriedTenureBalance($registration);
@@ -2762,16 +2849,29 @@ final class Platform
             $carried = $this->priorTenureArrears($registration);
         }
 
-        $netTenure = $accrued - $tenurePaid;
-        $tenureOwed = max(0, $netTenure);
-        $priorArrears = max(0, $carried - max(0, -$netTenure));
+        $credit = max(0, $tenurePaid - $tenureTotal);
+        $priorArrears = max(0, (int) $carried - $credit);
+        $tenureOwed = max(0, ($tenureTotal - min($tenurePaid, $tenureTotal)) - max(0, $credit - max(0, (int) $carried)));
 
         return array(
-            'accruedRent' => $accrued,
+            'annualRent' => $annualRent,
+            'monthsElapsed' => $monthsElapsed,
+            'rentYearIndex' => $rentYearIndex,
+            'tenureMonths' => $tenureMonths > 0 ? $tenureMonths : $monthsElapsed,
+            'tenureYears' => $tenureYears,
+            'yearsBilled' => $yearsBilled,
+            'rentYearStart' => $rentYearStart === false ? '' : date('Y-m-d', $rentYearStart),
+            'rentYearEnd' => $rentYearEnd === false ? '' : date('Y-m-d', $rentYearEnd),
+            'accruedRent' => $tenureTotal,
+            'billedToDate' => $tenureTotal,
+            'tenureTotal' => $tenureTotal,
             'tenurePaid' => $tenurePaid,
+            'rentPaidThisYear' => $rentPaidThisYear,
+            'firstYearOwed' => $firstYearOwed,
+            'laterYearsOwed' => max(0, $tenureOwed - $firstYearOwed),
             'tenureOwed' => $tenureOwed,
             'priorArrears' => $priorArrears,
-            'carriedOver' => $carried,
+            'carriedOver' => (int) $carried,
             'totalOwed' => $tenureOwed + $priorArrears,
         );
     }
@@ -2869,6 +2969,10 @@ final class Platform
                 $paidTimestamp = ! empty($payment['createdAt']) ? @strtotime((string) $payment['createdAt']) : false;
 
                 if ($paidTimestamp === false) {
+                    continue;
+                }
+
+                if (stripos((string) $payment['description'], 'rent') === false) {
                     continue;
                 }
 
@@ -2971,6 +3075,10 @@ final class Platform
             'monthlyRent' => (int) $row['monthly_rent'],
             'serviceCharge' => (int) $row['service_charge'],
             'securityDeposit' => (int) $row['security_deposit'],
+            'legalFee' => isset($row['legal_fee']) ? (int) $row['legal_fee'] : 0,
+            'vatFee' => isset($row['vat_fee']) ? (int) $row['vat_fee'] : 0,
+            'subscriptionForm' => isset($row['subscription_form']) ? (int) $row['subscription_form'] : 0,
+            'toiletFee' => isset($row['toilet_fee']) ? (int) $row['toilet_fee'] : 0,
             'status' => (string) $row['status'],
             'notes' => isset($row['notes']) && $row['notes'] !== null ? (string) $row['notes'] : '',
             'createdAt' => (string) $row['created_at'],
@@ -3071,10 +3179,13 @@ final class Platform
         $startDate = trim(isset($payload['start_date']) ? $payload['start_date'] : '');
         $endDate = trim(isset($payload['end_date']) ? $payload['end_date'] : '');
         $charges = $this->propertyCurrentCharges($property);
-        $yearlyRent = $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
+        $yearlyRent = $charges['annualRent'] > 0
+            ? (int) $charges['annualRent']
+            : $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
+        $rentPaidAtRegistration = $this->extractAmount(isset($payload['rent_paid_at_registration']) ? $payload['rent_paid_at_registration'] : 0);
 
-        if ($yearlyRent <= 0 && $charges['annualRent'] > 0) {
-            $yearlyRent = $charges['annualRent'];
+        if ($yearlyRent <= 0) {
+            $yearlyRent = $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
         }
 
         $monthlyRent = $yearlyRent > 0 ? (int) round($yearlyRent / 12) : 0;
@@ -3082,6 +3193,10 @@ final class Platform
         $serviceChargeRaw = isset($payload['service_charge']) ? (string) $payload['service_charge'] : '';
         $serviceCharge = trim($serviceChargeRaw) !== '' ? $this->extractAmount($serviceChargeRaw) : $charges['serviceCharge'];
         $securityDeposit = $this->extractAmount(isset($payload['security_deposit']) ? $payload['security_deposit'] : 0);
+        $legalFee = $this->extractAmount(isset($payload['legal_fee']) ? $payload['legal_fee'] : 0);
+        $vatFee = $this->extractAmount(isset($payload['vat_fee']) ? $payload['vat_fee'] : 0);
+        $subscriptionForm = $this->extractAmount(isset($payload['subscription_form']) ? $payload['subscription_form'] : 0);
+        $toiletFee = $this->extractAmount(isset($payload['toilet_fee']) ? $payload['toilet_fee'] : 0);
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
         if ($tenure === '') {
@@ -3110,6 +3225,10 @@ final class Platform
 
         if ($securityDeposit < 0) {
             return array(false, 'Caution deposit cannot be negative.');
+        }
+
+        if ($legalFee < 0 || $vatFee < 0 || $subscriptionForm < 0 || $toiletFee < 0) {
+            return array(false, 'Legal fee, VAT, subscription form, and toilet charges cannot be negative.');
         }
 
         if ($targetTable === 'mall_shops') {
@@ -3234,6 +3353,10 @@ final class Platform
             'monthly_rent' => $monthlyRent,
             'service_charge' => $serviceCharge,
             'security_deposit' => $securityDeposit,
+            'legal_fee' => $legalFee,
+            'vat_fee' => $vatFee,
+            'subscription_form' => $subscriptionForm,
+            'toilet_fee' => $toiletFee,
             'notes' => $notes !== '' ? $notes : null,
             'updated_at' => $now,
         );
@@ -3332,6 +3455,24 @@ final class Platform
 
         if ($registration) {
             $this->syncUnitHistory($targetTable, $this->buildNormalizedUnitFromRegistration($registration));
+
+            if ($rentPaidAtRegistration > 0 && ! $current) {
+                $this->database->insert('payments', array(
+                    'user_id' => (int) $registration['userId'],
+                    'property_id' => (int) $registration['propertyId'],
+                    'unit_id' => (int) $registration['unitId'],
+                    'application_id' => 0,
+                    'tenancy_id' => 0,
+                    'amount' => $rentPaidAtRegistration,
+                    'channel' => 'cash',
+                    'card_last4' => '',
+                    'reference' => $this->paymentReference('reg' . $registration['unitId'] . $now . mt_rand(1000, 9999)),
+                    'description' => 'Rent payment recorded at registration',
+                    'created_at' => $now,
+                ));
+
+                $registration = $this->findTenantRegistration($targetTable, $newId);
+            }
 
             if (isset($files['tenancy_agreement'])) {
                 $this->deleteTenancyDocumentsForRegistration($registration['unitTable'], $registration['unitId']);
@@ -3688,10 +3829,12 @@ final class Platform
         $startDate = trim(isset($payload['start_date']) ? $payload['start_date'] : '');
         $endDate = trim(isset($payload['end_date']) ? $payload['end_date'] : '');
         $charges = $this->propertyCurrentCharges($registration['property']);
-        $yearlyRent = $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
+        $yearlyRent = $charges['annualRent'] > 0
+            ? (int) $charges['annualRent']
+            : $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
 
-        if ($yearlyRent <= 0 && $charges['annualRent'] > 0) {
-            $yearlyRent = $charges['annualRent'];
+        if ($yearlyRent <= 0) {
+            $yearlyRent = $this->extractAmount(isset($payload['monthly_rent']) ? $payload['monthly_rent'] : 0);
         }
 
         $monthlyRent = $yearlyRent > 0 ? (int) round($yearlyRent / 12) : 0;
@@ -3821,6 +3964,8 @@ final class Platform
             $reference = $this->paymentReference($registration['unitId'] . $chargeType . $paidAt . mt_rand(1000, 9999));
         }
 
+        $baseDescription = $chargeType === 'deposit' ? 'Deposit payment' : 'Rent payment';
+
         $this->database->insert('payments', array(
             'user_id' => (int) $registration['userId'],
             'property_id' => (int) $registration['propertyId'],
@@ -3831,11 +3976,137 @@ final class Platform
             'channel' => $channel,
             'card_last4' => '',
             'reference' => $reference,
-            'description' => $label !== '' ? $label : ($chargeType === 'deposit' ? 'Deposit payment' : 'Tenant payment'),
+            'description' => $label !== '' ? $baseDescription . ' - ' . $label : $baseDescription,
             'created_at' => $paidAt,
         ));
 
         return array($this->findTenantRegistration($unitTable, $unitId), null);
+    }
+
+    public function keyCollectionsForRegistration($unitTable, $unitId)
+    {
+        if (! in_array($unitTable, $this->registrationTables(), true)) {
+            return array();
+        }
+
+        $rows = $this->database->fetchAll(
+            'SELECT * FROM key_collections WHERE unit_table = :unit_table AND unit_id = :unit_id ORDER BY id DESC',
+            array('unit_table' => (string) $unitTable, 'unit_id' => (int) $unitId)
+        );
+
+        $collections = array();
+
+        foreach ($rows as $row) {
+            $collections[] = array(
+                'id' => (int) $row['id'],
+                'propertyId' => (int) $row['property_id'],
+                'unitTable' => (string) $row['unit_table'],
+                'unitId' => (int) $row['unit_id'],
+                'userId' => (int) $row['user_id'],
+                'paymentId' => (int) $row['payment_id'],
+                'amountPaid' => (int) $row['amount_paid'],
+                'expectedRent' => (int) $row['expected_rent'],
+                'balance' => (int) $row['balance'],
+                'collectedAt' => (string) $row['collected_at'],
+                'collectorName' => (string) $row['collector_name'],
+                'recipientName' => (string) $row['recipient_name'],
+                'keysCount' => (int) $row['keys_count'],
+                'notes' => isset($row['notes']) && $row['notes'] !== null ? (string) $row['notes'] : '',
+                'createdAt' => (string) $row['created_at'],
+            );
+        }
+
+        return $collections;
+    }
+
+    public function recordKeyCollectionByAdmin($unitTable, $unitId, array $payload, $adminUser)
+    {
+        $registration = $this->findTenantRegistration($unitTable, $unitId);
+
+        if (! $registration) {
+            return array(false, 'That tenant registration could not be found.', array());
+        }
+
+        $amountPaid = $this->extractAmount(isset($payload['amount_paid']) ? $payload['amount_paid'] : 0);
+
+        if ($amountPaid < 0) {
+            return array(false, 'Enter a valid amount paid.', array());
+        }
+
+        $keysCount = isset($payload['keys_count']) ? (int) $payload['keys_count'] : 1;
+        if ($keysCount < 1) {
+            $keysCount = 1;
+        }
+
+        $recipientName = trim(isset($payload['recipient_name']) ? (string) $payload['recipient_name'] : '');
+        if ($recipientName === '') {
+            $recipientName = $registration['user']['name'];
+        }
+
+        $collectedAt = $this->normalizeDateTimeInput(trim(isset($payload['collected_at']) ? (string) $payload['collected_at'] : ''));
+        if ($collectedAt === '') {
+            $collectedAt = $this->now();
+        }
+
+        $channel = trim(isset($payload['channel']) ? (string) $payload['channel'] : 'cash');
+        $reference = trim(isset($payload['reference']) ? (string) $payload['reference'] : '');
+        $notes = trim(isset($payload['notes']) ? (string) $payload['notes'] : '');
+
+        $paymentId = 0;
+        $postPayment = isset($payload['post_payment']) && in_array((string) $payload['post_payment'], array('1', 'yes', 'on'), true);
+        $balances = $this->registrationBalanceBreakdown($registration);
+        $expectedRent = (int) $balances['tenureTotal'];
+        $priorPaid = (int) $balances['tenurePaid'];
+        $balance = max(0, $expectedRent - $priorPaid - ($postPayment && $amountPaid > 0 ? $amountPaid : 0));
+
+        if ($amountPaid > 0 && $postPayment) {
+            if ($reference === '') {
+                $reference = $this->paymentReference($registration['unitId'] . 'key' . $collectedAt . mt_rand(1000, 9999));
+            }
+
+            $paymentId = $this->database->insert('payments', array(
+                'user_id' => (int) $registration['userId'],
+                'property_id' => (int) $registration['propertyId'],
+                'unit_id' => (int) $registration['unitId'],
+                'application_id' => 0,
+                'tenancy_id' => 0,
+                'amount' => $amountPaid,
+                'channel' => $channel,
+                'card_last4' => '',
+                'reference' => $reference,
+                'description' => 'Rent payment recorded at key collection',
+                'created_at' => $collectedAt,
+            ));
+        }
+
+        $keyId = $this->database->insert('key_collections', array(
+            'property_id' => (int) $registration['propertyId'],
+            'unit_table' => (string) $registration['unitTable'],
+            'unit_id' => (int) $registration['unitId'],
+            'user_id' => (int) $registration['userId'],
+            'payment_id' => $paymentId,
+            'amount_paid' => $amountPaid,
+            'expected_rent' => $expectedRent,
+            'balance' => $balance,
+            'collected_at' => $collectedAt,
+            'collected_by' => isset($adminUser['id']) ? (int) $adminUser['id'] : 0,
+            'collector_name' => isset($adminUser['name']) ? (string) $adminUser['name'] : 'Sandworth Admin',
+            'recipient_name' => $recipientName,
+            'keys_count' => $keysCount,
+            'notes' => $notes !== '' ? $notes : null,
+            'created_at' => $this->now(),
+        ));
+
+        $info = array(
+            'keyId' => $keyId,
+            'amountPaid' => $amountPaid,
+            'expectedRent' => $expectedRent,
+            'balance' => $balance,
+            'recipientName' => $recipientName,
+            'paymentPosted' => $paymentId > 0,
+        );
+
+        return array($this->findTenantRegistration($unitTable, $unitId), null, $info);
     }
 
     private function addServiceChargePaymentByAdmin(array $registration, $amount, $label, $channel, $paidAt, array $payload = array())
@@ -4283,6 +4554,287 @@ final class Platform
         return $rates;
     }
 
+    private function serviceChargeLedgerForUnit($unitTable, $unitId)
+    {
+        $unitTable = (string) $unitTable;
+        $unitId = (int) $unitId;
+
+        if ($unitTable === '' || $unitId <= 0) {
+            return array();
+        }
+
+        $rows = $this->database->fetchAll(
+            'SELECT a.service_month, a.amount_paid, p.reference, p.created_at
+             FROM service_charge_allocations a
+             LEFT JOIN payments p ON p.id = a.payment_id
+             WHERE a.unit_table = :unit_table AND a.unit_id = :unit_id
+             ORDER BY a.service_month ASC, p.created_at ASC, p.id ASC, a.id ASC',
+            array('unit_table' => $unitTable, 'unit_id' => $unitId)
+        );
+
+        $ledger = array();
+
+        foreach ($rows as $row) {
+            $serviceMonth = (string) $row['service_month'];
+            $dateLabel = '';
+            $ts = @strtotime((string) $row['created_at']);
+
+            if ($ts !== false && $ts > 0) {
+                $dateLabel = date('d M Y', $ts);
+            }
+
+            if (! isset($ledger[$serviceMonth])) {
+                $ledger[$serviceMonth] = array();
+            }
+
+            $ledger[$serviceMonth][] = array(
+                'reference' => (string) $row['reference'],
+                'date' => $dateLabel,
+                'amount' => (int) $row['amount_paid'],
+            );
+        }
+
+        return $ledger;
+    }
+
+    private function serviceChargeMonthsBlock(array $monthEntries, $propertyId, array $allocLedger, $currentYearStart, array $meta = array())
+    {
+        if ($monthEntries === array()) {
+            return null;
+        }
+
+        $months = array();
+        $totalRates = 0;
+        $totalPaid = 0;
+        $totalRemaining = 0;
+        $totalArrears = 0;
+        $todayStartTs = strtotime(date('Y-m-d'));
+        $settledAssumed = ! empty($meta['settledAssumed']);
+
+        foreach ($monthEntries as $entry) {
+            $serviceMonth = (string) $entry['serviceMonth'];
+            $rate = $this->serviceChargeRateForMonth($propertyId, $serviceMonth);
+            $allocations = isset($allocLedger[$serviceMonth]) ? $allocLedger[$serviceMonth] : array();
+            $paid = 0;
+
+            foreach ($allocations as $a) {
+                $paid += (int) $a['amount'];
+            }
+
+            if ($settledAssumed && $allocations === array()) {
+                $paid = $rate;
+            }
+
+            $remaining = max(0, $rate - $paid);
+            $monthStartTs = strtotime($serviceMonth . '-01');
+            $isPast = $monthStartTs < $todayStartTs;
+            $isArrears = $remaining > 0 && $isPast && ($currentYearStart === '' || strcmp($serviceMonth, $currentYearStart) < 0);
+
+            $totalRates += $rate;
+            $totalPaid += $paid;
+            $totalRemaining += $remaining;
+
+            if ($isArrears) {
+                $totalArrears += $remaining;
+            }
+
+            $months[] = array(
+                'serviceMonth' => $serviceMonth,
+                'startLabel' => date('M Y', $monthStartTs),
+                'rate' => $rate,
+                'allocations' => $allocations,
+                'paid' => $paid,
+                'remaining' => $remaining,
+                'assumed' => $settledAssumed && $allocations === array(),
+                'isArrears' => $isArrears,
+            );
+        }
+
+        $tenureValue = isset($meta['tenure']) ? (string) $meta['tenure'] : '';
+
+        $years = $this->groupServiceChargeMonthsIntoYears($months);
+
+        return array(
+            'isOngoing' => ! empty($meta['isOngoing']),
+            'tenure' => $tenureValue,
+            'tenureLabel' => $this->tenureDisplayLabel($tenureValue),
+            'startDate' => isset($meta['startDate']) ? (string) $meta['startDate'] : '',
+            'endDate' => isset($meta['endDate']) ? (string) $meta['endDate'] : '',
+            'status' => isset($meta['status']) ? (string) $meta['status'] : 'ended',
+            'settledAssumed' => $settledAssumed,
+            'serviceChargeRate' => isset($meta['serviceChargeRate']) ? (int) $meta['serviceChargeRate'] : 0,
+            'months' => $months,
+            'years' => $years,
+            'totalRates' => $totalRates,
+            'totalPaid' => $totalPaid,
+            'totalRemaining' => $totalRemaining,
+            'totalArrears' => $totalArrears,
+            'arrearsFromStart' => $totalArrears,
+        );
+    }
+
+    private function groupServiceChargeMonthsIntoYears(array $months)
+    {
+        $groups = array();
+        $index = 0;
+        $currentYearNumber = 0;
+        $currentGroup = array();
+
+        foreach ($months as $m) {
+            $yearNumber = (int) floor($index / 12) + 1;
+
+            if ($yearNumber !== $currentYearNumber) {
+                if ($currentGroup !== array()) {
+                    $groups[] = $currentGroup;
+                }
+
+                $currentGroup = array();
+                $currentYearNumber = $yearNumber;
+            }
+
+            $currentGroup[] = $m;
+            $index++;
+        }
+
+        if ($currentGroup !== array()) {
+            $groups[] = $currentGroup;
+        }
+
+        $years = array();
+
+        foreach ($groups as $groupId => $group) {
+            $rate = 0;
+            $paid = 0;
+            $remaining = 0;
+
+            foreach ($group as $gm) {
+                $rate += (int) $gm['rate'];
+                $paid += (int) $gm['paid'];
+                $remaining += (int) $gm['remaining'];
+            }
+
+            $firstMonth = $group[0];
+            $lastMonth = $group[count($group) - 1];
+
+            $years[] = array(
+                'yearNumber' => $groupId + 1,
+                'startLabel' => isset($firstMonth['startLabel']) ? (string) $firstMonth['startLabel'] : '',
+                'endLabel' => isset($lastMonth['startLabel']) ? (string) $lastMonth['startLabel'] : '',
+                'months' => $group,
+                'rate' => $rate,
+                'paid' => $paid,
+                'remaining' => $remaining,
+            );
+        }
+
+        return $years;
+    }
+
+    public function serviceChargeTenureBlocksForRegistration(array $registration)
+    {
+        $propertyId = isset($registration['propertyId']) ? (int) $registration['propertyId'] : 0;
+        $unitTable = isset($registration['unitTable']) ? (string) $registration['unitTable'] : '';
+        $unitId = isset($registration['unitId']) ? (int) $registration['unitId'] : 0;
+        $startValue = isset($registration['startDate']) ? trim((string) $registration['startDate']) : '';
+        $endValue = isset($registration['endDate']) ? trim((string) $registration['endDate']) : '';
+        $startTs = $startValue !== '' ? @strtotime($startValue) : false;
+        $endTs = $endValue !== '' ? @strtotime($endValue) : false;
+
+        $empty = array(
+            'tenures' => array(),
+            'totalRates' => 0,
+            'totalPaid' => 0,
+            'totalRemaining' => 0,
+            'totalArrears' => 0,
+        );
+
+        if ($startTs === false || $startTs <= 0) {
+            return $empty;
+        }
+
+        if ($endTs === false || $endTs <= 0) {
+            $endTs = strtotime('+11 months', strtotime(date('Y-m-01', $startTs)));
+        }
+
+        $allocLedger = $this->serviceChargeLedgerForUnit($unitTable, $unitId);
+        $tenures = array();
+
+        $monthsElapsed = $this->elapsedTenureMonths($startValue);
+        $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+        $windowStartTs = strtotime(date('Y-m-01', $startTs));
+        $windowEndTs = min($endTs + 86400, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $windowStartTs));
+        $currentYearStart = date('Y-m', strtotime('+' . ($yearIndex * 12) . ' months', $windowStartTs));
+
+        $ongoing = $this->serviceChargeMonthsBlock(
+            $this->serviceChargeMonthsBetween($windowStartTs, $windowEndTs),
+            $propertyId,
+            $allocLedger,
+            $currentYearStart,
+            array(
+                'isOngoing' => true,
+                'tenure' => isset($registration['tenure']) ? trim((string) $registration['tenure']) : '',
+                'startDate' => $startValue,
+                'endDate' => $endValue,
+                'status' => 'active',
+            )
+        );
+
+        if ($ongoing !== null) {
+            $tenures[] = $ongoing;
+        }
+
+        foreach ($this->tenureHistoryForRegistration($unitTable, $unitId) as $historyRow) {
+            $historyStart = isset($historyRow['startDate']) ? trim((string) $historyRow['startDate']) : '';
+            $historyEnd = isset($historyRow['endDate']) ? trim((string) $historyRow['endDate']) : '';
+            $hsTs = $historyStart !== '' ? @strtotime($historyStart) : false;
+            $heTs = $historyEnd !== '' ? @strtotime($historyEnd) : false;
+
+            if ($hsTs === false || $hsTs <= 0 || $heTs === false || $heTs <= 0 || $heTs < $hsTs) {
+                continue;
+            }
+
+            $prior = $this->serviceChargeMonthsBlock(
+                $this->serviceChargeMonthsBetween($hsTs, $heTs + 86400),
+                $propertyId,
+                $allocLedger,
+                '',
+                array(
+                    'isOngoing' => false,
+                    'tenure' => isset($historyRow['tenure']) ? (string) $historyRow['tenure'] : '',
+                    'startDate' => $historyStart,
+                    'endDate' => $historyEnd,
+                    'status' => isset($historyRow['status']) ? (string) $historyRow['status'] : 'ended',
+                    'settledAssumed' => true,
+                    'serviceChargeRate' => isset($historyRow['serviceCharge']) ? (int) $historyRow['serviceCharge'] : 0,
+                )
+            );
+
+            if ($prior !== null) {
+                $tenures[] = $prior;
+            }
+        }
+
+        $totalRates = 0;
+        $totalPaid = 0;
+        $totalRemaining = 0;
+        $totalArrears = 0;
+
+        foreach ($tenures as $tb) {
+            $totalRates += (int) $tb['totalRates'];
+            $totalPaid += (int) $tb['totalPaid'];
+            $totalRemaining += (int) $tb['totalRemaining'];
+            $totalArrears += (int) $tb['totalArrears'];
+        }
+
+        return array(
+            'tenures' => $tenures,
+            'totalRates' => $totalRates,
+            'totalPaid' => $totalPaid,
+            'totalRemaining' => $totalRemaining,
+            'totalArrears' => $totalArrears,
+        );
+    }
+
     private function rentPaymentsForUnit(array $registration)
     {
         $propertyId = (int) $registration['propertyId'];
@@ -4444,6 +4996,7 @@ final class Platform
     public function rentYearsForRegistration(array $registration)
     {
         $monthlyRent = isset($registration['monthlyRent']) ? (int) $registration['monthlyRent'] : 0;
+        $annualRent = $this->registrationAnnualRent($registration);
         $startValue = isset($registration['startDate']) ? trim((string) $registration['startDate']) : '';
         $endValue = isset($registration['endDate']) ? trim((string) $registration['endDate']) : '';
         $startTs = $startValue !== '' ? @strtotime($startValue) : false;
@@ -4469,9 +5022,12 @@ final class Platform
         $paymentRows = $this->rentPaymentRecordsForUnit($registration);
 
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
-        $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+        $tenureMonths = $this->registrationTenureMonths($registration);
+        $tenureYears = $tenureMonths > 0 ? max(1, (int) round($tenureMonths / 12)) : 0;
+        $elapsedYears = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+        $yearIndex = max($elapsedYears, $tenureYears - 1);
         $currentYearStartTs = strtotime(date('Y-m-01', $startTs));
-        $windowEndTs = min($endTs + 86400, strtotime('+' . ($yearIndex * 12 + 11) . ' months', strtotime(date('Y-m-01', $startTs))));
+        $windowEndTs = min($endTs + 1, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $currentYearStartTs));
 
         $years = array();
         $totalRates = 0;
@@ -4482,15 +5038,25 @@ final class Platform
 
         for ($i = 0; $i <= $yearIndex; $i++) {
             $yearStartTs = strtotime('+' . ($i * 12) . ' months', $currentYearStartTs);
-            $yearEndTs = min($windowEndTs, strtotime('+' . (($i + 1) * 12) . ' months', $currentYearStartTs) - 86400);
+            $yearEndTs = min($windowEndTs, strtotime('+' . (($i + 1) * 12) . ' months', $currentYearStartTs) - 1);
 
             if ($yearStartTs > $windowEndTs) {
                 break;
             }
 
-            $monthEntries = $this->serviceChargeMonthsBetween($yearStartTs, $yearEndTs + 86400);
-            $monthCount = count($monthEntries);
-            $rate = $monthlyRent * max(0, $monthCount);
+            $monthEntries = $this->serviceChargeMonthsBetween($yearStartTs, $yearEndTs);
+            $monthCount = 0;
+            $monthCursor = strtotime(date('Y-m-01', $yearStartTs));
+
+            while ($monthCursor !== false && $monthCursor <= $yearEndTs) {
+                $monthCount++;
+                $monthCursor = @strtotime('+1 month', $monthCursor);
+            }
+
+            $monthCount = $monthCount > 0 ? $monthCount : count($monthEntries);
+            $rate = $annualRent > 0
+                ? (int) round($annualRent * max(0, $monthCount) / 12)
+                : $monthlyRent * max(0, $monthCount);
 
             $yearPayments = array();
             $paid = 0;
@@ -4498,7 +5064,7 @@ final class Platform
             foreach ($paymentRows as $row) {
                 $ts = @strtotime((string) $row['created_at']);
 
-                if ($ts !== false && $ts > 0 && $ts >= $yearStartTs && $ts <= $yearEndTs + 86400) {
+                if ($ts !== false && $ts > 0 && $ts >= $yearStartTs && $ts <= $yearEndTs) {
                     $yearPayments[] = array(
                         'id' => (int) $row['id'],
                         'amount' => (int) $row['amount'],
@@ -4651,6 +5217,159 @@ final class Platform
             'endDate' => $endValue,
             'status' => (string) $empty['status'],
         );
+    }
+
+    public function tenureBlocksForRegistration(array $registration)
+    {
+        $ongoing = $this->currentTenureYearsBlock($registration);
+
+        if ($ongoing === null) {
+            return array('tenures' => array(), 'totalRates' => 0, 'totalPaid' => 0, 'totalRemaining' => 0, 'totalArrears' => 0);
+        }
+
+        $tenures = array($ongoing);
+
+        foreach ($this->tenureHistoryForRegistration($registration['unitTable'], $registration['unitId']) as $historyRow) {
+            $tenures[] = $this->previousTenureYearsBlock($historyRow);
+        }
+
+        return array(
+            'tenures' => $tenures,
+            'totalRates' => (int) $ongoing['totalRates'],
+            'totalPaid' => (int) $ongoing['totalPaid'],
+            'totalRemaining' => (int) $ongoing['totalRemaining'],
+            'totalArrears' => (int) $ongoing['totalArrears'],
+        );
+    }
+
+    public function currentTenureYearsBlock(array $registration)
+    {
+        $yearsData = $this->rentYearsForRegistration($registration);
+
+        if ($yearsData['years'] === array() || $yearsData['totalRates'] <= 0) {
+            return null;
+        }
+
+        $tenureValue = isset($registration['tenure']) ? trim((string) $registration['tenure']) : '';
+
+        return array(
+            'isOngoing' => true,
+            'label' => 'Ongoing tenure',
+            'tenure' => $tenureValue,
+            'tenureLabel' => $this->tenureDisplayLabel($tenureValue),
+            'startDate' => isset($registration['startDate']) ? trim((string) $registration['startDate']) : '',
+            'endDate' => isset($registration['endDate']) ? trim((string) $registration['endDate']) : '',
+            'status' => 'active',
+            'years' => $yearsData['years'],
+            'totalRates' => $yearsData['totalRates'],
+            'totalPaid' => $yearsData['totalPaid'],
+            'totalRemaining' => $yearsData['totalRemaining'],
+            'totalArrears' => $yearsData['totalArrears'],
+            'arrearsFromStart' => $yearsData['totalArrears'],
+        );
+    }
+
+    public function previousTenureYearsBlock(array $historyRow)
+    {
+        $bd = $this->priorTenureBreakdown($historyRow);
+        $tenureValue = isset($bd['tenure']) ? trim((string) $bd['tenure']) : '';
+
+        return array(
+            'isOngoing' => false,
+            'label' => $tenureValue !== '' ? $this->tenureDisplayLabel($tenureValue) : 'Tenure',
+            'tenure' => $tenureValue,
+            'tenureLabel' => $this->tenureDisplayLabel($tenureValue),
+            'startDate' => $bd['startDate'],
+            'endDate' => $bd['endDate'],
+            'status' => $bd['status'] !== '' ? $bd['status'] : 'ended',
+            'years' => $this->groupMonthsIntoYears($bd['months']),
+            'totalRates' => $bd['totalRates'],
+            'totalPaid' => $bd['totalPaid'],
+            'totalRemaining' => $bd['outstanding'],
+            'totalArrears' => $bd['arrears'],
+            'arrearsFromStart' => $bd['arrears'],
+            'balanceCarried' => $bd['balanceCarried'],
+            'serviceChargeRate' => $bd['serviceChargeRate'],
+        );
+    }
+
+    private function groupMonthsIntoYears(array $months)
+    {
+        $years = array();
+
+        if ($months === array()) {
+            return $years;
+        }
+
+        $startTs = strtotime(date('Y-m-01', strtotime($months[0]['serviceMonth'] . '-01')));
+        $lastTs = strtotime(date('Y-m-01', strtotime($months[count($months) - 1]['serviceMonth'] . '-01')));
+        $yearIndex = 0;
+
+        while ($startTs <= $lastTs && $yearIndex < 120) {
+            $yearStartTs = strtotime('+' . ($yearIndex * 12) . ' months', $startTs);
+            $yearEndTs = min($lastTs, strtotime('+' . (($yearIndex + 1) * 12) . ' months', $startTs) - 1);
+            $yearMonths = array();
+            $rate = 0;
+            $paid = 0;
+            $remaining = 0;
+
+            foreach ($months as $m) {
+                $mTs = strtotime($m['serviceMonth'] . '-01');
+
+                if ($mTs >= $yearStartTs && $mTs <= $yearEndTs) {
+                    $yearMonths[] = $m;
+                    $rate += (int) $m['rate'];
+                    $paid += (int) $m['paid'];
+                    $remaining += (int) $m['remaining'];
+                }
+            }
+
+            if ($yearMonths !== array()) {
+                $years[] = array(
+                    'yearNumber' => $yearIndex + 1,
+                    'yearStart' => date('Y-m-d', $yearStartTs),
+                    'yearEnd' => date('Y-m-d', $yearEndTs),
+                    'annualRent' => $rate,
+                    'paid' => $paid,
+                    'remaining' => $remaining,
+                    'isArrears' => false,
+                    'isCurrentYear' => false,
+                    'months' => $yearMonths,
+                );
+            }
+
+            $yearIndex++;
+        }
+
+        $todayStartTs = strtotime(date('Y-m-d'));
+
+        foreach ($years as $k => $year) {
+            $yearEndTs = strtotime($year['yearEnd'] . ' 23:59:59');
+            $isPast = $yearEndTs < $todayStartTs;
+            $years[$k]['isArrears'] = $isPast && $year['remaining'] > 0;
+            $years[$k]['isCurrentYear'] = ! $isPast;
+        }
+
+        return $years;
+    }
+
+    private function tenureDisplayLabel($tenureValue)
+    {
+        $tenureValue = trim((string) $tenureValue);
+
+        if ($tenureValue === '') {
+            return '';
+        }
+
+        $matches = array();
+
+        if (preg_match('/^(\d+)\s*months?$/i', $tenureValue, $matches) && ((int) $matches[1]) % 12 === 0 && (int) $matches[1] > 0) {
+            $years = (int) $matches[1] / 12;
+
+            return $years . ($years === 1 ? ' year' : ' years');
+        }
+
+        return $tenureValue;
     }
 
     private function unitSelectWithUser($unitTable)
@@ -4932,9 +5651,31 @@ final class Platform
         return $block !== '' ? $label . ' · ' . $block : $label;
     }
 
-    private function tenureMonths($tenure)
+    private function registrationTenureMonths(array $registration)
     {
-        $tenure = strtolower(trim((string) $tenure));
+        // The tenancy dates say how long the term really runs, which matters because the tenure
+        // field was stored in years by the registration form but in months by older records.
+        $startDate = trim(isset($registration['startDate']) ? (string) $registration['startDate'] : '');
+        $endDate = trim(isset($registration['endDate']) ? (string) $registration['endDate'] : '');
+
+        if ($startDate !== '' && $endDate !== '') {
+            $startTimestamp = @strtotime($startDate);
+            $endTimestamp = @strtotime($endDate);
+
+            if ($startTimestamp !== false && $endTimestamp !== false && $endTimestamp > $startTimestamp) {
+                $months = (int) round(($endTimestamp - $startTimestamp) / 2629800);
+
+                if ($months > 0) {
+                    return $months;
+                }
+            }
+        }
+
+        return $this->tenureMonths(isset($registration['tenure']) ? (string) $registration['tenure'] : '');
+    }
+
+    private function tenureMonths($tenure)
+    {        $tenure = strtolower(trim((string) $tenure));
 
         if ($tenure === '') {
             return 0;

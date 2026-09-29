@@ -983,16 +983,10 @@ $router->get('admin-tenants', function () use ($platform) {
         $tenantRow['tenureHistory'] = $platform->tenureHistoryForRegistration($tenantRow['unitTable'], $tenantRow['unitId']);
         $tenantRow['scSummary'] = $platform->serviceChargeSummaryForRegistration($tenantRow);
         $tenantRow['rentSchedule'] = $platform->rentScheduleForRegistration($tenantRow);
-        $tenantRow['rentYears'] = $platform->rentYearsForRegistration($tenantRow);
-        $tenantRow['priorTenures'] = array();
+        $tenantRow['tenureBlocks'] = $platform->tenureBlocksForRegistration($tenantRow);
+        $tenantRow['scTenureBlocks'] = $platform->serviceChargeTenureBlocksForRegistration($tenantRow);
         $tenantRow['documents'] = $platform->findTenancyDocumentsForRegistration($tenantRow['unitTable'], $tenantRow['unitId']);
-
-        foreach ($tenantRow['tenureHistory'] as $historyRow) {
-            $tenantRow['priorTenures'][] = array(
-                'history' => $historyRow,
-                'breakdown' => $platform->priorTenureBreakdown($historyRow),
-            );
-        }
+        $tenantRow['keyCollections'] = $platform->keyCollectionsForRegistration($tenantRow['unitTable'], $tenantRow['unitId']);
 
         return $tenantRow;
     };
@@ -1285,6 +1279,69 @@ $router->get('admin-tenant-payment-new', function () use ($platform) {
         'payType' => $payType,
         'oldInput' => App\Core\Flash::old(),
     ));
+});
+
+$router->get('admin-tenant-key-collection', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_GET['unit_table']) ? (string) $_GET['unit_table'] : '';
+    $unitId = isset($_GET['unit_id']) ? (int) $_GET['unit_id'] : 0;
+
+    $registration = $platform->findTenantRegistration($unitTable, $unitId);
+
+    if (! $registration) {
+        App\Core\Flash::add('error', 'That tenant registration could not be found.');
+        app_redirect('admin-tenants');
+    }
+
+    $registration['balances'] = $platform->registrationBalanceBreakdown($registration);
+    $registration['keyCollections'] = $platform->keyCollectionsForRegistration($registration['unitTable'], $registration['unitId']);
+
+    if ($registration['property']) {
+        $unitPropertyCharges = $platform->propertyCurrentCharges($registration['property']);
+        $registration['propertyRentYearly'] = isset($unitPropertyCharges['annualRent']) ? (int) $unitPropertyCharges['annualRent'] : 0;
+    }
+
+    App\Core\View::render('pages/admin-tenant-key-collection', array(
+        'pageTitle' => 'Key Collection | Sandworth Homes',
+        'activePage' => 'manager',
+        'portfolio' => $platform->adminPortfolio(),
+        'registration' => $registration,
+        'oldInput' => App\Core\Flash::old(),
+    ));
+});
+
+$router->post('admin-tenant-key-collection', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+
+    list($tenant, $error, $info) = $platform->recordKeyCollectionByAdmin($unitTable, $unitId, $_POST, $viewer);
+
+    if (! $tenant) {
+        App\Core\Flash::add('error', $error);
+        App\Core\Flash::keep($_POST);
+        app_redirect('admin-tenant-key-collection', array('unit_table' => $unitTable, 'unit_id' => $unitId));
+    }
+
+    $message = 'Keys were recorded as handed to ' . $info['recipientName'] . '.';
+
+    if ($info['balance'] > 0) {
+        $message .= ' Balance of ' . app_currency($info['balance']) . ' is still outstanding on the rent.';
+    } elseif ($info['amountPaid'] > 0) {
+        $message .= ' Rent settled in full.';
+    }
+
+    App\Core\Flash::add('success', $message);
+
+    if (isset($_POST['just_added']) && $_POST['just_added'] !== '') {
+        app_redirect('admin-tenants', array('just_added' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
+    }
+
+    app_redirect('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
 });
 
 $router->post('admin-tenant-payment', function () use ($platform) {

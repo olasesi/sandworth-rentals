@@ -955,6 +955,18 @@ code {
     border-color: var(--bad);
 }
 
+.type-pill.pill-ongoing {
+    background: var(--primary-light);
+    color: var(--primary);
+    border-color: var(--primary-mid);
+}
+
+.type-pill.pill-renewed {
+    background: #CCFBF1;
+    color: #0F766E;
+    border-color: #14B8A6;
+}
+
 .type-pill.is-active {
     color: #fff;
 }
@@ -964,6 +976,8 @@ code {
 .type-pill.pill-inactive.is-active { background: var(--warn); border-color: var(--warn); }
 .type-pill.pill-ended.is-active { background: var(--neutral); border-color: var(--neutral); }
 .type-pill.pill-owing.is-active { background: var(--bad); border-color: var(--bad); }
+.type-pill.pill-ongoing.is-active { background: var(--primary); border-color: var(--primary); }
+.type-pill.pill-renewed.is-active { background: #0F766E; border-color: #0F766E; }
 
 .type-pill .pill-count {
     display: inline-block;
@@ -1939,6 +1953,23 @@ code {
     background: linear-gradient(90deg, var(--primary-mid), var(--accent));
 }
 
+.manager-stats article.stat-highlight-danger {
+    background: var(--bad-soft);
+    border-color: var(--bad);
+}
+
+.manager-stats article.stat-highlight-danger::before {
+    background: var(--bad);
+}
+
+.manager-stats article.stat-highlight-danger span {
+    color: var(--bad-strong);
+}
+
+.manager-stats article.stat-highlight-danger strong {
+    color: var(--bad);
+}
+
 .manager-stats span,
 .plan-stats span {
     font-size: .75rem;
@@ -2355,6 +2386,10 @@ code {
 }
 
 .admin-content-page summary::-webkit-details-marker {
+    display: none;
+}
+
+.prior-tenure-block[open] .tenure-summary-amount {
     display: none;
 }
 
@@ -2899,6 +2934,44 @@ code {
 }
 
 .admin-tenant-summary-grid strong {
+    font-size: .95rem;
+    color: var(--ink);
+}
+
+.admin-tenant-summary-grid .admin-tenant-name {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: clamp(1.3rem, 1.8vw, 1.6rem);
+    line-height: 1.15;
+    margin-top: 2px;
+}
+
+.admin-tenant-charges {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-light, #e5e7eb);
+}
+
+.admin-tenant-charges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px 20px;
+}
+
+.admin-tenant-charges-grid div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.admin-tenant-charges-grid div > span:first-child {
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+}
+
+.admin-tenant-charges-grid strong {
     font-size: .95rem;
     color: var(--ink);
 }
@@ -3482,6 +3555,36 @@ body.is-transitioning { opacity: .7; transition: opacity .2s; }
 .record-table-row--highlight {
     background: var(--warn-soft);
     border-left: 3px solid var(--warn-border);
+}
+
+/* ──────────────────────────────────────────────────────────
+   SERVICE CHARGE MONTHLY TABLE (6 columns + yearly dividers)
+   ────────────────────────────────────────────────────────── */
+.record-table-row.sc-table-col-6 {
+    grid-template-columns: 1fr 1fr 1.3fr 1.2fr 1fr 1fr;
+}
+
+.sc-table-col-6 .record-table-head {
+    background: var(--bg);
+}
+
+.sc-year-divider {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    padding: 8px 20px;
+    margin-top: 8px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line-light);
+    background: var(--bg);
+    font-size: .78rem;
+}
+
+.sc-year-divider:first-of-type {
+    margin-top: 0;
+    border-top: none;
 }
 
 /* ──────────────────────────────────────────────────────────

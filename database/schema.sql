@@ -256,6 +256,10 @@ CREATE TABLE IF NOT EXISTS mall_shops (
     monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
     service_charge INT UNSIGNED NOT NULL DEFAULT 0,
     security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+    toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
     notes TEXT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -277,6 +281,10 @@ CREATE TABLE IF NOT EXISTS residential_units (
     monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
     service_charge INT UNSIGNED NOT NULL DEFAULT 0,
     security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+    toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
     notes TEXT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -299,6 +307,10 @@ CREATE TABLE IF NOT EXISTS apartment_flats (
     monthly_rent INT UNSIGNED NOT NULL DEFAULT 0,
     service_charge INT UNSIGNED NOT NULL DEFAULT 0,
     security_deposit INT UNSIGNED NOT NULL DEFAULT 0,
+    legal_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    vat_fee INT UNSIGNED NOT NULL DEFAULT 0,
+    subscription_form INT UNSIGNED NOT NULL DEFAULT 0,
+    toilet_fee INT UNSIGNED NOT NULL DEFAULT 0,
     notes TEXT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -409,6 +421,29 @@ CREATE TABLE IF NOT EXISTS service_charge_allocations (
     KEY sc_alloc_payment_idx (payment_id),
     KEY sc_alloc_unit_idx (unit_table, unit_id),
     KEY sc_alloc_month_idx (unit_table, unit_id, service_month)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS key_collections (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL DEFAULT 0,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    payment_id INT UNSIGNED NOT NULL DEFAULT 0,
+    amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+    expected_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    balance INT NOT NULL DEFAULT 0,
+    collected_at DATETIME NOT NULL,
+    collected_by INT UNSIGNED NOT NULL DEFAULT 0,
+    collector_name VARCHAR(150) NOT NULL DEFAULT '',
+    recipient_name VARCHAR(150) NOT NULL DEFAULT '',
+    keys_count INT UNSIGNED NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY key_collect_unit_idx (unit_table, unit_id),
+    KEY key_collect_property_idx (property_id),
+    KEY key_collect_user_idx (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS rent_reminders (
