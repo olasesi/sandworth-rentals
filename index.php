@@ -1270,6 +1270,8 @@ $router->get('admin-tenant-payment-new', function () use ($platform) {
     $registration['balances'] = $platform->registrationBalanceBreakdown($registration);
     $registration['tenureHistory'] = $platform->tenureHistoryForRegistration($registration['unitTable'], $registration['unitId']);
     $registration['scSummary'] = $platform->serviceChargeSummaryForRegistration($registration);
+    $registration['rentPeriods'] = $platform->rentPeriodsForRegistration($registration);
+    $registration['scPeriods'] = $platform->serviceChargePeriodsForRegistration($registration);
 
     App\Core\View::render('pages/admin-payment-new', array(
         'pageTitle' => 'Record Payment | Sandworth Homes',
@@ -1392,6 +1394,11 @@ $router->get('admin-tenant-payment-edit', function () use ($platform) {
     $registration['tenureBlocks'] = $platform->tenureBlocksForRegistration($registration);
     $registration['scTenureBlocks'] = $platform->serviceChargeTenureBlocksForRegistration($registration);
     $registration['paymentTypes'] = $platform->paymentClassificationsForRegistration($registration);
+    $registration['rentPeriods'] = $platform->rentPeriodsForRegistration($registration);
+    $registration['scPeriods'] = $platform->serviceChargePeriodsForRegistration($registration);
+    $registration['scMonthPeriods'] = $platform->serviceChargeMonthPeriodsForRegistration($registration);
+    $registration['rentPeriodPayments'] = $platform->rentPeriodPaymentsForRegistration($registration);
+    $registration['scMonthPayments'] = $platform->serviceChargeMonthPaymentsForRegistration($registration);
 
     App\Core\View::render('pages/admin-tenant-payments', array(
         'pageTitle' => 'Tenancy Payments | Sandworth Homes',
@@ -1400,6 +1407,36 @@ $router->get('admin-tenant-payment-edit', function () use ($platform) {
         'registration' => $registration,
         'oldInput' => App\Core\Flash::old(),
     ));
+});
+
+$router->post('admin-tenant-period-payment', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    $periodKey = isset($_POST['period_key']) ? (string) $_POST['period_key'] : '';
+    list($tenant, $error) = $platform->addUnitPaymentByAdmin($unitTable, $unitId, $_POST, $viewer);
+
+    if (! $tenant) {
+        App\Core\Flash::add('error', $error);
+        app_redirect('admin-tenant-payment-edit', array('unit_table' => $unitTable, 'unit_id' => $unitId));
+    }
+
+    $periodLabel = $periodKey;
+
+    if ($periodKey === 'prior') {
+        $periodLabel = 'the earlier tenure';
+    } elseif (preg_match('/^y\d+$/', $periodKey)) {
+        $periodLabel = 'year ' . (int) substr($periodKey, 1);
+    } elseif (preg_match('/^(\d{4})-(\d{2})$/', $periodKey, $matches)) {
+        $periodLabel = strtolower(date('F Y', (int) mktime(0, 0, 0, (int) $matches[2], 1, (int) $matches[1])));
+    }
+
+    App\Core\Flash::add('success', $periodKey !== ''
+        ? 'Payment was posted against ' . $periodLabel . ' on the breakdown.'
+        : 'Payment was posted to the tenant timeline.');
+    app_redirect('admin-tenant-payment-edit', array('unit_table' => $tenant['unitTable'], 'unit_id' => $tenant['unitId']));
 });
 
 $router->post('admin-tenant-payment-update', function () use ($platform) {

@@ -3851,28 +3851,6 @@ final class Platform
             ? $this->extractAmount($payload['security_deposit'])
             : (int) $registration['securityDeposit'];
 
-        $chargeColumns = array('legal_fee', 'vat_fee', 'subscription_form', 'toilet_fee');
-        $extraCharges = array(
-            'legal_fee' => isset($payload['legal_fee']) && trim((string) $payload['legal_fee']) !== ''
-                ? $this->extractAmount($payload['legal_fee']) : (int) $registration['legalFee'],
-            'vat_fee' => isset($payload['vat_fee']) && trim((string) $payload['vat_fee']) !== ''
-                ? $this->extractAmount($payload['vat_fee']) : (int) $registration['vatFee'],
-            'subscription_form' => isset($payload['subscription_form']) && trim((string) $payload['subscription_form']) !== ''
-                ? $this->extractAmount($payload['subscription_form']) : (int) $registration['subscriptionForm'],
-            'toilet_fee' => isset($payload['toilet_fee']) && trim((string) $payload['toilet_fee']) !== ''
-                ? $this->extractAmount($payload['toilet_fee']) : (int) $registration['toiletFee'],
-        );
-
-        if ($unitTable !== 'mall_shops') {
-            $extraCharges['toilet_fee'] = 0;
-        }
-
-        foreach ($extraCharges as $extraCharge) {
-            if ($extraCharge < 0) {
-                return array(false, 'The other charges on a tenancy cannot be negative.');
-            }
-        }
-
         $rentPaidAtRenewal = $this->extractAmount(isset($payload['rent_paid_at_renewal']) ? $payload['rent_paid_at_renewal'] : 0);
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
@@ -3935,7 +3913,7 @@ final class Platform
 
         $this->syncUnitHistory($unitTable, array_merge($unit, array('status' => 'ended')));
 
-        $data = array_merge(array(
+        $data = array(
             'tenure' => $tenure,
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -3945,7 +3923,7 @@ final class Platform
             'status' => 'active',
             'notes' => $notes !== '' ? $notes : (string) $registration['notes'],
             'updated_at' => $now,
-        ), $extraCharges);
+        );
 
         $this->database->execute(
             'UPDATE `' . $unitTable . '` SET ' . $this->buildUnitUpdateSet($data) . ' WHERE id = :id AND property_id = :property_id',
@@ -4020,8 +3998,20 @@ final class Platform
         }
 
         $baseDescription = $chargeType === 'deposit' ? 'Deposit payment' : 'Rent payment';
+        $periodKey = trim(isset($payload['period_key']) ? (string) $payload['period_key'] : '');
 
-        $this->database->insert('payments', array(
+        if ($chargeType === 'rent' && $periodKey !== '') {
+            $periodCheck = $this->validateRentPeriodPayment($registration, $periodKey, $amount);
+
+            if (! $periodCheck['ok']) {
+                return array(false, $periodCheck['error']);
+            }
+
+            $period = $periodCheck['period'];
+            $baseDescription = 'Rent payment for ' . $period['shortLabel'];
+        }
+
+        $paymentId = $this->database->insert('payments', array(
             'user_id' => (int) $registration['userId'],
             'property_id' => (int) $registration['propertyId'],
             'unit_id' => (int) $registration['unitId'],
@@ -4035,7 +4025,61 @@ final class Platform
             'created_at' => $paidAt,
         ));
 
+        if ($chargeType === 'rent' && $periodKey !== '' && $paymentId > 0) {
+            $period = $periodCheck['period'];
+            $this->database->insert('rent_period_allocations', array(
+                'payment_id' => (int) $paymentId,
+                'property_id' => (int) $registration['propertyId'],
+                'unit_table' => (string) $registration['unitTable'],
+                'unit_id' => (int) $registration['unitId'],
+                'user_id' => (int) $registration['userId'],
+                'period_key' => (string) $periodKey,
+                'period_start' => $period['startDate'] !== '' ? $period['startDate'] : null,
+                'period_end' => $period['endDate'] !== '' ? $period['endDate'] : null,
+                'amount_paid' => $amount,
+                'created_at' => $paidAt,
+            ));
+        }
+
         return array($this->findTenantRegistration($unitTable, $unitId), null);
+    }
+
+    /**
+     * Checks a rent payment against the period the admin picked: the period has to exist, it cannot
+     * already be settled, and the amount cannot go past what is still owing for it.
+     */
+    private function validateRentPeriodPayment(array $registration, $periodKey, $amount, $alreadyPaid = 0)
+    {
+        $periods = $this->rentPeriodsForRegistration($registration);
+        $found = null;
+
+        foreach ($periods['periods'] as $period) {
+            if ((string) $period['key'] === (string) $periodKey) {
+                $found = $period;
+                break;
+            }
+        }
+
+        if ($found === null) {
+            return array('ok' => false, 'error' => 'Choose which period of the tenure this rent payment is for.');
+        }
+
+        // What this payment already cleared stays available while it is being edited, so saving it
+        // without changing the amount is not treated as an over payment.
+        $available = (int) $found['remaining'] + max(0, (int) $alreadyPaid);
+
+        if ($available <= 0) {
+            return array('ok' => false, 'error' => 'The rent for ' . $found['shortLabel'] . ' is already settled in full, so there is nothing to pay against it.');
+        }
+
+        if ($amount > $available) {
+            return array(
+                'ok' => false,
+                'error' => 'That is more than the ' . $this->formatMoney($available) . ' still owing for ' . $found['shortLabel'] . '.',
+            );
+        }
+
+        return array('ok' => true, 'error' => '', 'period' => $found);
     }
 
     public function keyCollectionsForRegistration($unitTable, $unitId)
@@ -4168,13 +4212,47 @@ final class Platform
     {
         $summary = $this->serviceChargeSummaryForRegistration($registration);
         $maxPayable = (int) $summary['outstanding'];
+        $periodKey = trim(isset($payload['period_key']) ? (string) $payload['period_key'] : '');
+        $allocationMonths = isset($summary['months']) && is_array($summary['months']) ? $summary['months'] : array();
+        $periodLabel = 'the service charge';
 
-        if ($amount > $maxPayable) {
-            return array(false, 'That amount is more than the service charge payable of ' . $this->formatMoney($maxPayable) . '. Lower the amount to the unpaid service charge.');
-        }
+        if ($periodKey !== '') {
+            list($period, $periodMonths) = $this->serviceChargePeriodMonthsForRegistration($registration, $periodKey);
 
-        if ($maxPayable <= 0) {
-            return array(false, 'There is no outstanding service charge to record a payment against.');
+            if (! $period) {
+                return array(false, 'Choose one of the service charge periods listed.');
+            }
+
+            if ($periodMonths === array()) {
+                return array(false, 'Choose a service charge period with service charge on it.');
+            }
+
+            $periodName = $period['label'] . ' (' . $period['startDate'] . ' to ' . $period['endDate'] . ')';
+            $periodLabel = 'the ' . $periodName . ' service charge';
+
+            $periodRemaining = 0;
+
+            foreach ($periodMonths as $month) {
+                $periodRemaining += (int) $month['remaining'];
+            }
+
+            if ($periodRemaining <= 0) {
+                return array(false, 'The service charge for ' . $periodName . ' is already settled in full, so there is nothing to pay against it.');
+            }
+
+            if ($amount > $periodRemaining) {
+                return array(false, 'That is more than the ' . $this->formatMoney($periodRemaining) . ' still owing for ' . $periodName . '.');
+            }
+
+            $allocationMonths = $periodMonths;
+        } else {
+            if ($maxPayable <= 0) {
+                return array(false, 'There is no outstanding service charge to record a payment against.');
+            }
+
+            if ($amount > $maxPayable) {
+                return array(false, 'That amount is more than the service charge payable of ' . $this->formatMoney($maxPayable) . '. Lower the amount to the unpaid service charge.');
+            }
         }
 
         $reference = trim(isset($payload['reference']) ? $payload['reference'] : '');
@@ -4182,6 +4260,11 @@ final class Platform
         if ($reference === '') {
             $reference = $this->paymentReference($registration['unitId'] . 'service_charge' . $paidAt . mt_rand(1000, 9999));
         }
+
+        $baseDescription = $periodKey !== '' && isset($period)
+            ? 'Service charge for ' . $periodName
+            : 'Service charge';
+
 
         $paymentId = $this->database->insert('payments', array(
             'user_id' => (int) $registration['userId'],
@@ -4193,11 +4276,10 @@ final class Platform
             'channel' => $channel,
             'card_last4' => '',
             'reference' => $reference,
-            'description' => $label !== '' ? $label : 'Service charge',
+            'description' => $label !== '' ? $baseDescription . ' - ' . $label : $baseDescription,
             'created_at' => $paidAt,
         ));
 
-        $allocationMonths = isset($summary['months']) && is_array($summary['months']) ? $summary['months'] : array();
         $leftOver = $amount;
 
         foreach ($allocationMonths as $month) {
@@ -4272,6 +4354,25 @@ final class Platform
         $scSummary = $this->serviceChargeSummaryForRegistration($registration);
         $rentStartTs = isset($registration['startDate']) ? @strtotime((string) $registration['startDate']) : false;
         $currentRentYear = null;
+        $periodAllocations = $this->rentPeriodAllocationsForUnit($registration['unitTable'], $registration['unitId']);
+        $rentPeriodKeys = array();
+        $scMonthsByPayment = array();
+
+        foreach ((array) $this->rentPeriodsForRegistration($registration)['periods'] as $rentPeriod) {
+            $rentPeriodKeys[] = (string) $rentPeriod['key'];
+        }
+
+        foreach ($this->database->fetchAll(
+            'SELECT payment_id, service_month FROM service_charge_allocations WHERE unit_table = :unit_table AND unit_id = :unit_id ORDER BY service_month ASC',
+            array('unit_table' => (string) $registration['unitTable'], 'unit_id' => (int) $registration['unitId'])
+        ) as $allocation) {
+            $paymentId = (int) $allocation['payment_id'];
+            $monthKey = (string) $allocation['service_month'];
+
+            if ($paymentId > 0 && $monthKey !== '' && ! isset($scMonthsByPayment[$paymentId])) {
+                $scMonthsByPayment[$paymentId] = $monthKey;
+            }
+        }
 
         foreach ((array) $rentYears['years'] as $year) {
             $yearStartTs = @strtotime((string) $year['yearStart']);
@@ -4288,6 +4389,19 @@ final class Platform
             $paidTimestamp = $paidAt !== '' ? @strtotime($paidAt) : false;
             $yearNumber = 0;
             $yearIsPast = false;
+            $paymentId = (int) $payment['id'];
+            $periodKey = '';
+
+            if ($type === 'rent' && isset($periodAllocations[$paymentId])) {
+                foreach ($periodAllocations[$paymentId] as $allocation) {
+                    $periodKey = (string) $allocation['periodKey'];
+                    break;
+                }
+            }
+
+            if ($type === 'service_charge' && isset($scMonthsByPayment[$paymentId])) {
+                $periodKey = $this->serviceChargePeriodKeyForMonth($registration, $scMonthsByPayment[$paymentId]);
+            }
 
             foreach ((array) $rentYears['years'] as $year) {
                 $yearStartTs = @strtotime((string) $year['yearStart']);
@@ -4303,8 +4417,19 @@ final class Platform
                 }
             }
 
-            $classifications[(int) $payment['id']] = array(
+            // Rent recorded before periods were tracked is still grouped under the year it cleared,
+            // so the breakdown and the history editor show the same period.
+            if ($type === 'rent' && trim((string) $periodKey) === '' && $yearNumber > 0) {
+                $candidateKey = 'y' . $yearNumber;
+
+                if (in_array($candidateKey, $rentPeriodKeys, true)) {
+                    $periodKey = $candidateKey;
+                }
+            }
+
+            $classifications[$paymentId] = array(
                 'type' => $type,
+                'periodKey' => $periodKey,
                 'rentYearNumber' => $yearNumber,
                 'rentYearLabel' => $yearNumber > 0 ? 'Year ' . $yearNumber : '',
                 'settlesArrears' => $type === 'rent'
@@ -4373,6 +4498,131 @@ final class Platform
 
         $baseDescription = $chargeType === 'rent' ? 'Rent payment' : ($chargeType === 'service_charge' ? 'Service charge' : ($chargeType === 'deposit' ? 'Deposit payment' : 'Other payment'));
         $description = $label !== '' ? $baseDescription . ' - ' . $label : $baseDescription;
+        $periodKey = trim(isset($payload['period_key']) ? (string) $payload['period_key'] : '');
+
+        // The new service charge split is worked out before anything is written, counting this
+        // payment's own months as still available, so a rejected edit leaves the ledger untouched.
+        $scMonths = array();
+
+        if ($chargeType === 'service_charge') {
+            $ownByMonth = array();
+
+            foreach ($this->database->fetchAll(
+                'SELECT service_month, amount_paid FROM service_charge_allocations WHERE payment_id = :payment_id',
+                array('payment_id' => $paymentId)
+            ) as $own) {
+                $monthKey = (string) $own['service_month'];
+                $ownByMonth[$monthKey] = (isset($ownByMonth[$monthKey]) ? $ownByMonth[$monthKey] : 0) + (int) $own['amount_paid'];
+            }
+
+            $summary = $this->serviceChargeSummaryForRegistration($registration);
+            $periodRemaining = 0;
+            $periodHasMonths = false;
+            $scPeriod = null;
+
+            if ($periodKey !== '') {
+                list($scPeriod, $scPeriodMonths) = $this->serviceChargePeriodMonthsForRegistration($registration, $periodKey);
+
+                if (! $scPeriod) {
+                    return array($this->findTenantRegistration($unitTable, $unitId), 'Choose one of the service charge periods listed.');
+                }
+
+                $windowStart = $scPeriod['windowStart'];
+                $windowEnd = $scPeriod['windowEnd'];
+            }
+
+            foreach ((array) $summary['months'] as $month) {
+                $monthKey = (string) $month['serviceMonth'];
+                $available = (int) $month['remaining'] + (isset($ownByMonth[$monthKey]) ? $ownByMonth[$monthKey] : 0);
+                $scMonths[] = array(
+                    'serviceMonth' => $monthKey,
+                    'rate' => (int) $month['rate'],
+                    'remaining' => $available,
+                );
+
+                if ($periodKey === '') {
+                    $periodRemaining += $available;
+                } else {
+                    $monthShort = substr($monthKey, 0, 7);
+
+                    if ($monthShort >= $windowStart && $monthShort <= $windowEnd) {
+                        $periodRemaining += $available;
+                        $periodHasMonths = true;
+                    }
+                }
+            }
+
+            if ($periodKey !== '') {
+                $periodName = $scPeriod['label'] . ' (' . $scPeriod['startDate'] . ' to ' . $scPeriod['endDate'] . ')';
+
+                if (! $periodHasMonths) {
+                    return array($this->findTenantRegistration($unitTable, $unitId), 'Choose a service charge period with service charge on it.');
+                }
+
+                if ($periodRemaining <= 0) {
+                    return array($this->findTenantRegistration($unitTable, $unitId), 'The service charge for ' . $periodName . ' is already settled in full, so there is nothing to pay against it.');
+                }
+
+                if ($amount > $periodRemaining) {
+                    return array(
+                        $this->findTenantRegistration($unitTable, $unitId),
+                        'That is more than the ' . $this->formatMoney($periodRemaining) . ' still owing for ' . $periodName . '.',
+                    );
+                }
+
+                $scMonths = array_values(array_filter($scMonths, function ($month) use ($windowStart, $windowEnd) {
+                    $monthShort = substr($month['serviceMonth'], 0, 7);
+
+                    return $monthShort >= $windowStart && $monthShort <= $windowEnd;
+                }));
+            } else {
+                $maxPayable = (int) $summary['outstanding'] + (int) array_sum($ownByMonth);
+
+                if ($amount > $maxPayable) {
+                    return array(
+                        $this->findTenantRegistration($unitTable, $unitId),
+                        'That amount is more than the service charge payable of ' . $this->formatMoney($maxPayable) . '.',
+                    );
+                }
+            }
+        }
+
+        $rentPeriod = null;
+
+        if ($chargeType === 'rent' && $periodKey !== '') {
+            $ownRentPaid = 0;
+
+            foreach ((array) $this->database->fetchAll(
+                'SELECT period_key, amount_paid FROM rent_period_allocations WHERE payment_id = :payment_id',
+                array('payment_id' => $paymentId)
+            ) as $ownAllocation) {
+                if ((string) $ownAllocation['period_key'] === (string) $periodKey) {
+                    $ownRentPaid += (int) $ownAllocation['amount_paid'];
+                }
+            }
+
+            // Rent recorded before periods were tracked has no allocation row, so the period it
+            // already cleared is worked out the same way the breakdown works it out.
+            if ($ownRentPaid === 0) {
+                $classifications = $this->paymentClassificationsForRegistration($registration);
+
+                if (isset($classifications[$paymentId])
+                    && $classifications[$paymentId]['type'] === 'rent'
+                    && (string) $classifications[$paymentId]['periodKey'] === (string) $periodKey) {
+                    $ownRentPaid = (int) $row['amount'];
+                }
+            }
+
+            $periodCheck = $this->validateRentPeriodPayment($registration, $periodKey, $amount, $ownRentPaid);
+
+            if (! $periodCheck['ok']) {
+                return array($this->findTenantRegistration($unitTable, $unitId), $periodCheck['error']);
+            }
+
+            $rentPeriod = $periodCheck['period'];
+            $baseDescription = 'Rent payment for ' . $rentPeriod['shortLabel'];
+            $description = $label !== '' ? $baseDescription . ' - ' . $label : $baseDescription;
+        }
 
         $this->database->execute(
             'UPDATE payments SET amount = :amount, channel = :channel, reference = :reference, description = :description, created_at = :created_at WHERE id = :id',
@@ -4392,47 +4642,55 @@ final class Platform
             array('payment_id' => $paymentId)
         );
 
+        $this->database->execute(
+            'DELETE FROM rent_period_allocations WHERE payment_id = :payment_id',
+            array('payment_id' => $paymentId)
+        );
+
         if ($chargeType === 'service_charge') {
-            $summary = $this->serviceChargeSummaryForRegistration($registration);
-            $maxPayable = (int) $summary['outstanding'];
+            $leftOver = $amount;
 
-            if ($amount > $maxPayable) {
-                return array(
-                    $this->findTenantRegistration($unitTable, $unitId),
-                    'The payment was changed to service charge, but ' . $this->formatMoney($amount) . ' is more than the service charge payable of ' . $this->formatMoney($maxPayable) . '. Adjust the amount to the unpaid service charge.',
-                );
-            }
-
-            if ($maxPayable > 0) {
-                $leftOver = $amount;
-
-                foreach ((array) $summary['months'] as $month) {
-                    if ($leftOver <= 0) {
-                        break;
-                    }
-
-                    $remaining = (int) $month['remaining'];
-
-                    if ($remaining <= 0) {
-                        continue;
-                    }
-
-                    $monthlyPaid = min($leftOver, $remaining);
-                    $this->database->insert('service_charge_allocations', array(
-                        'payment_id' => $paymentId,
-                        'property_id' => (int) $registration['propertyId'],
-                        'unit_table' => (string) $registration['unitTable'],
-                        'unit_id' => (int) $unitId,
-                        'user_id' => (int) $registration['userId'],
-                        'service_month' => (string) $month['serviceMonth'],
-                        'rate_used' => (int) $month['rate'],
-                        'amount_paid' => $monthlyPaid,
-                        'created_at' => $paidAt,
-                    ));
-
-                    $leftOver -= $monthlyPaid;
+            foreach ($scMonths as $month) {
+                if ($leftOver <= 0) {
+                    break;
                 }
+
+                $remaining = (int) $month['remaining'];
+
+                if ($remaining <= 0) {
+                    continue;
+                }
+
+                $monthlyPaid = min($leftOver, $remaining);
+                $this->database->insert('service_charge_allocations', array(
+                    'payment_id' => $paymentId,
+                    'property_id' => (int) $registration['propertyId'],
+                    'unit_table' => (string) $unitTable,
+                    'unit_id' => (int) $unitId,
+                    'user_id' => (int) $registration['userId'],
+                    'service_month' => (string) $month['serviceMonth'],
+                    'rate_used' => (int) $month['rate'],
+                    'amount_paid' => $monthlyPaid,
+                    'created_at' => $paidAt,
+                ));
+
+                $leftOver -= $monthlyPaid;
             }
+        }
+
+        if ($rentPeriod !== null) {
+            $this->database->insert('rent_period_allocations', array(
+                'payment_id' => $paymentId,
+                'property_id' => (int) $registration['propertyId'],
+                'unit_table' => (string) $unitTable,
+                'unit_id' => (int) $unitId,
+                'user_id' => (int) $registration['userId'],
+                'period_key' => (string) $periodKey,
+                'period_start' => $rentPeriod['startDate'] !== '' ? $rentPeriod['startDate'] : null,
+                'period_end' => $rentPeriod['endDate'] !== '' ? $rentPeriod['endDate'] : null,
+                'amount_paid' => $amount,
+                'created_at' => $paidAt,
+            ));
         }
 
         return array($this->findTenantRegistration($unitTable, $unitId), null);
@@ -4458,6 +4716,11 @@ final class Platform
 
         $this->database->execute(
             'DELETE FROM service_charge_allocations WHERE payment_id = :payment_id',
+            array('payment_id' => $paymentId)
+        );
+
+        $this->database->execute(
+            'DELETE FROM rent_period_allocations WHERE payment_id = :payment_id',
             array('payment_id' => $paymentId)
         );
 
@@ -4736,7 +4999,10 @@ final class Platform
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
         $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
         $monthEndTs = strtotime('+' . ($yearIndex * 12 + 11) . ' months', strtotime(date('Y-m-01', $startTs)));
-        $windowEndTs = min($endTs + 86400, $monthEndTs);
+
+        // A tenancy that has already run out is billed only up to the end of the tenure, otherwise
+        // the month after the end date gets counted as well.
+        $windowEndTs = min($endTs, $monthEndTs);
         $windowStartTs = strtotime(date('Y-m-01', $startTs));
 
         $monthList = $this->serviceChargeMonthsBetween($windowStartTs, $windowEndTs);
@@ -5030,7 +5296,9 @@ final class Platform
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
         $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
         $windowStartTs = strtotime(date('Y-m-01', $startTs));
-        $windowEndTs = min($endTs + 86400, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $windowStartTs));
+
+        // Keep a closed tenancy inside its own dates, otherwise the month after the end date is billed.
+        $windowEndTs = min($endTs, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $windowStartTs));
         $currentYearStart = date('Y-m', strtotime('+' . ($yearIndex * 12) . ' months', $windowStartTs));
 
         $ongoing = $this->serviceChargeMonthsBlock(
@@ -5206,7 +5474,10 @@ final class Platform
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
         $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
         $monthEndTs = strtotime('+' . ($yearIndex * 12 + 11) . ' months', strtotime(date('Y-m-01', $startTs)));
-        $windowEndTs = min($endTs + 86400, $monthEndTs);
+
+        // A tenancy that has already run out is billed only up to the end of the tenure, otherwise
+        // the month after the end date gets counted as well.
+        $windowEndTs = min($endTs, $monthEndTs);
         $windowStartTs = strtotime(date('Y-m-01', $startTs));
 
         $monthList = $this->serviceChargeMonthsBetween($windowStartTs, $windowEndTs);
@@ -5288,6 +5559,7 @@ final class Platform
         }
 
         $paymentRows = $this->rentPaymentRecordsForUnit($registration);
+        $periodAllocations = $this->rentPeriodAllocationsForUnit($registration['unitTable'], $registration['unitId']);
 
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
         $tenureMonths = $this->registrationTenureMonths($registration);
@@ -5328,13 +5600,40 @@ final class Platform
 
             $yearPayments = array();
             $paid = 0;
+            $periodKey = 'y' . ($i + 1);
 
             foreach ($paymentRows as $row) {
+                $paymentId = (int) $row['id'];
+
+                if (isset($periodAllocations[$paymentId])) {
+                    $allocatedToThisYear = 0;
+
+                    foreach ($periodAllocations[$paymentId] as $allocation) {
+                        if ((string) $allocation['periodKey'] === $periodKey) {
+                            $allocatedToThisYear += (int) $allocation['amountPaid'];
+                        }
+                    }
+
+                    if ($allocatedToThisYear > 0) {
+                        $yearPayments[] = array(
+                            'id' => $paymentId,
+                            'amount' => $allocatedToThisYear,
+                            'channel' => (string) $row['channel'],
+                            'reference' => (string) $row['reference'],
+                            'description' => (string) $row['description'],
+                            'date' => date('d M Y', @strtotime((string) $row['created_at'])),
+                        );
+                        $paid += $allocatedToThisYear;
+                    }
+
+                    continue;
+                }
+
                 $ts = @strtotime((string) $row['created_at']);
 
                 if ($ts !== false && $ts > 0 && $ts >= $yearStartTs && $ts <= $yearEndTs) {
                     $yearPayments[] = array(
-                        'id' => (int) $row['id'],
+                        'id' => $paymentId,
                         'amount' => (int) $row['amount'],
                         'channel' => (string) $row['channel'],
                         'reference' => (string) $row['reference'],
@@ -5411,6 +5710,444 @@ final class Platform
             'SELECT id, amount, channel, reference, description, created_at FROM payments WHERE property_id = :property_id AND unit_id = :unit_id AND id NOT IN (' . $idList . ') ORDER BY created_at ASC, id ASC',
             array('property_id' => $propertyId, 'unit_id' => $unitId)
         );
+    }
+
+    /**
+     * Payments recorded against a named rent period, keyed by payment id. A payment recorded today
+     * against a year that has already closed is filed under that year, so it clears those arrears
+     * instead of landing in whichever year today's date falls in.
+     */
+    private function rentPeriodAllocationsForUnit($unitTable, $unitId)
+    {
+        $rows = $this->database->fetchAll(
+            'SELECT payment_id, period_key, period_start, period_end, amount_paid FROM rent_period_allocations WHERE unit_table = :unit_table AND unit_id = :unit_id ORDER BY id ASC',
+            array('unit_table' => (string) $unitTable, 'unit_id' => (int) $unitId)
+        );
+
+        $byPayment = array();
+
+        foreach ($rows as $row) {
+            $paymentId = (int) $row['payment_id'];
+
+            if ($paymentId <= 0) {
+                continue;
+            }
+
+            if (! isset($byPayment[$paymentId])) {
+                $byPayment[$paymentId] = array();
+            }
+
+            $byPayment[$paymentId][] = array(
+                'periodKey' => (string) $row['period_key'],
+                'periodStart' => $row['period_start'] !== null ? (string) $row['period_start'] : '',
+                'periodEnd' => $row['period_end'] !== null ? (string) $row['period_end'] : '',
+                'amountPaid' => (int) $row['amount_paid'],
+            );
+        }
+
+        return $byPayment;
+    }
+
+    /**
+     * The rent periods an admin can post a payment against: arrears carried in from an earlier
+     * tenure, then each year of the current tenure with what is billed, paid, and still owing.
+     */
+    public function rentPeriodsForRegistration(array $registration)
+    {
+        $yearsData = $this->rentYearsForRegistration($registration);
+        $breakdown = $this->registrationBalanceBreakdown($registration);
+        $periods = array();
+        $priorArrears = (int) $breakdown['priorArrears'];
+
+        if ($priorArrears > 0) {
+            $carriedOver = (int) $breakdown['carriedOver'];
+            $periods[] = array(
+                'key' => 'prior',
+                'label' => 'Arrears carried from an earlier tenure',
+                'shortLabel' => 'Earlier tenure',
+                'startDate' => '',
+                'endDate' => '',
+                'billed' => $carriedOver,
+                'paid' => max(0, $carriedOver - $priorArrears),
+                'remaining' => $priorArrears,
+                'isArrears' => true,
+                'isCurrent' => false,
+                'isSettled' => false,
+                'isPrior' => true,
+            );
+        }
+
+        foreach ((array) $yearsData['years'] as $year) {
+            $remaining = (int) $year['remaining'];
+            $periods[] = array(
+                'key' => 'y' . (int) $year['yearNumber'],
+                'label' => 'Year ' . (int) $year['yearNumber'] . ' (' . $this->shortDate($year['yearStart']) . ' to ' . $this->shortDate($year['yearEnd']) . ')',
+                'shortLabel' => 'Year ' . (int) $year['yearNumber'],
+                'startDate' => (string) $year['yearStart'],
+                'endDate' => (string) $year['yearEnd'],
+                'billed' => (int) $year['annualRent'],
+                'paid' => (int) $year['paid'],
+                'remaining' => $remaining,
+                'isArrears' => ! empty($year['isArrears']),
+                'isCurrent' => ! empty($year['isCurrentYear']),
+                'isSettled' => $remaining <= 0,
+                'isPrior' => false,
+            );
+        }
+
+        return array(
+            'periods' => $periods,
+            'totalBilled' => (int) $yearsData['totalRates'] + $priorArrears,
+            'totalPaid' => (int) $yearsData['totalPaid'],
+            'totalRemaining' => (int) $breakdown['totalOwed'],
+        );
+    }
+
+    /**
+     * The service charge billing periods an admin can post a payment against, oldest first.
+     */
+    public function serviceChargePeriodsForRegistration(array $registration)
+    {
+        $summary = $this->serviceChargeSummaryForRegistration($registration);
+        $groups = array();
+        $order = array();
+        $startValue = isset($registration['startDate']) ? trim((string) $registration['startDate']) : '';
+        $startTs = $startValue !== '' ? strtotime($startValue) : false;
+        $windowStartTs = $startTs !== false && $startTs > 0 ? strtotime(date('Y-m-01', $startTs)) : 0;
+        $priorTenures = $this->priorServiceChargeTenures($registration);
+        $priorWindowStartTs = 0;
+        $priorWindowEndTs = 0;
+
+        foreach ($priorTenures as $priorTenure) {
+            if ($priorWindowStartTs === 0 || $priorTenure['startTs'] < $priorWindowStartTs) {
+                $priorWindowStartTs = $priorTenure['startTs'];
+            }
+
+            if ($priorTenure['endTs'] > $priorWindowEndTs) {
+                $priorWindowEndTs = $priorTenure['endTs'];
+            }
+        }
+
+        foreach ((array) $summary['months'] as $month) {
+            $monthValue = (string) $month['serviceMonth'];
+            $monthTs = $monthValue !== '' ? strtotime($monthValue . '-01') : false;
+
+            if ($monthValue === '' || $monthTs === false) {
+                continue;
+            }
+
+            $fromEarlierTenure = false;
+
+            foreach ($priorTenures as $priorTenure) {
+                if ($monthTs >= $priorTenure['startTs'] && $monthTs <= $priorTenure['endTs']) {
+                    $fromEarlierTenure = true;
+                    break;
+                }
+            }
+
+            if ($fromEarlierTenure || $windowStartTs <= 0 || $monthTs < $windowStartTs) {
+                $periodKey = 'prior';
+                $periodIndex = 0;
+            } else {
+                $monthGap = (((int) date('Y', $monthTs)) - (int) date('Y', $windowStartTs)) * 12
+                    + ((int) date('n', $monthTs)) - (int) date('n', $windowStartTs);
+                $periodIndex = (int) floor($monthGap / 12);
+                $periodKey = 'y' . ($periodIndex + 1);
+            }
+
+            if (! isset($groups[$periodKey])) {
+                if ($periodKey === 'prior' && $priorWindowStartTs > 0) {
+                    $windowStart = strtotime(date('Y-m-01', $priorWindowStartTs));
+                    $windowEnd = strtotime(date('Y-m-t', $priorWindowEndTs));
+                } else {
+                    $windowStart = strtotime('+' . ($periodIndex * 12) . ' months', $windowStartTs);
+                    $windowEnd = strtotime('+' . 11 . ' months', $windowStart);
+                }
+                $groups[$periodKey] = array(
+                    'key' => $periodKey,
+                    'label' => $periodKey === 'prior' ? 'Earlier tenure' : 'Year ' . ($periodIndex + 1),
+                    'shortLabel' => $periodKey === 'prior' ? 'Arrears' : 'Year ' . ($periodIndex + 1),
+                    'startDate' => date('Y-m-d', $windowStart),
+                    'endDate' => date('Y-m-t', $windowEnd),
+                    'windowStart' => date('Y-m', $windowStart),
+                    'windowEnd' => date('Y-m', $windowEnd),
+                    'billed' => 0,
+                    'paid' => 0,
+                    'remaining' => 0,
+                    'isArrears' => false,
+                    'isCurrent' => false,
+                    'isSettled' => true,
+                    'isPrior' => $periodKey === 'prior',
+                );
+                $order[] = $periodKey;
+            }
+
+            $groups[$periodKey]['billed'] += (int) $month['rate'];
+            $groups[$periodKey]['paid'] += (int) $month['paid'];
+            $groups[$periodKey]['remaining'] += (int) $month['remaining'];
+            $groups[$periodKey]['isArrears'] = $groups[$periodKey]['isArrears'] || ! empty($month['isArrears']);
+        }
+
+        $periods = array();
+
+        foreach ($order as $periodKey) {
+            $group = $groups[$periodKey];
+            $group['isCurrent'] = $group['key'] !== 'prior' && $group['windowStart'] === (string) $summary['currentYearStart'];
+            $group['isSettled'] = $group['remaining'] <= 0;
+            $group['startDate'] = $this->shortDate($group['startDate']);
+            $group['endDate'] = $this->shortDate($group['endDate']);
+            $periods[] = $group;
+        }
+
+        return array(
+            'periods' => $periods,
+            'totalBilled' => (int) $summary['totalRates'],
+            'totalPaid' => (int) $summary['totalPaid'],
+            'totalRemaining' => (int) $summary['outstanding'],
+        );
+    }
+
+    /**
+     * The tenure year a service charge month falls in, so a payment can be shown against the same
+     * period it was allocated to.
+     */
+    private function serviceChargePeriodKeyForMonth(array $registration, $monthValue)
+    {
+        $monthValue = trim((string) $monthValue);
+
+        if ($monthValue === '') {
+            return '';
+        }
+
+        $monthTs = strtotime($monthValue . '-01');
+
+        if ($monthTs === false) {
+            return '';
+        }
+
+        $startValue = isset($registration['startDate']) ? trim((string) $registration['startDate']) : '';
+        $startTs = $startValue !== '' ? strtotime($startValue) : false;
+
+        foreach ($this->priorServiceChargeTenures($registration) as $priorTenure) {
+            if ($monthTs >= $priorTenure['startTs'] && $monthTs <= $priorTenure['endTs']) {
+                return 'prior';
+            }
+        }
+
+if ($startTs === false || $startTs <= 0) {
+            return 'prior';
+        }
+
+        $windowStartTs = strtotime(date('Y-m-01', $startTs));
+
+        if ($monthTs < $windowStartTs) {
+            return 'prior';
+        }
+
+        $monthGap = (((int) date('Y', $monthTs)) - (int) date('Y', $windowStartTs)) * 12
+            + ((int) date('n', $monthTs)) - (int) date('n', $windowStartTs);
+
+        return 'y' . ((int) floor($monthGap / 12) + 1);
+    }
+
+    /**
+     * Month by month service charge periods. Each month can be paid, adjusted or cleared on its own
+     * from the breakdown editor.
+     */
+    public function serviceChargeMonthPeriodsForRegistration(array $registration)
+    {
+        $summary = $this->serviceChargeSummaryForRegistration($registration);
+        $periods = array();
+
+        foreach ((array) $summary['months'] as $month) {
+            $key = (string) $month['serviceMonth'];
+
+            if ($key === '') {
+                continue;
+            }
+
+            $monthTs = strtotime($key . '-01');
+            $periods[] = array(
+                'key' => $key,
+                'label' => date('M Y', $monthTs),
+                'shortLabel' => date('M Y', $monthTs),
+                'startDate' => date('Y-m-d', $monthTs),
+                'endDate' => date('Y-m-t', $monthTs),
+                'windowStart' => $key,
+                'windowEnd' => $key,
+                'billed' => (int) $month['rate'],
+                'paid' => (int) $month['paid'],
+                'remaining' => (int) $month['remaining'],
+                'isArrears' => ! empty($month['isArrears']),
+                'isCurrent' => ! empty($month['isCurrentYear']),
+                'isSettled' => (int) $month['remaining'] <= 0,
+                'isPrior' => false,
+            );
+        }
+
+        return array(
+            'periods' => $periods,
+            'totalBilled' => (int) $summary['totalRates'],
+            'totalPaid' => (int) $summary['totalPaid'],
+            'totalRemaining' => (int) $summary['outstanding'],
+        );
+    }
+
+    /**
+     * The rent payments already allocated to each rent period, so the breakdown editor can list,
+     * adjust or remove them without hunting through the whole history.
+     */
+    public function rentPeriodPaymentsForRegistration(array $registration)
+    {
+        $groups = array();
+        $allocated = array();
+
+        foreach ((array) $this->database->fetchAll(
+            'SELECT r.payment_id, r.period_key, p.amount, p.channel, p.description, p.reference, p.created_at
+             FROM rent_period_allocations r
+             INNER JOIN payments p ON p.id = r.payment_id
+             WHERE r.unit_table = :unit_table AND r.unit_id = :unit_id
+             ORDER BY p.created_at DESC, r.payment_id DESC',
+            array('unit_table' => (string) $registration['unitTable'], 'unit_id' => (int) $registration['unitId'])
+        ) as $row) {
+            $groupKey = trim((string) $row['period_key']) !== '' ? (string) $row['period_key'] : 'unallocated';
+
+            if (! isset($groups[$groupKey])) {
+                $groups[$groupKey] = array();
+            }
+
+            $groups[$groupKey][] = array(
+                'paymentId' => (int) $row['payment_id'],
+                'amount' => (int) $row['amount'],
+                'channel' => (string) $row['channel'],
+                'description' => (string) $row['description'],
+                'reference' => (string) $row['reference'],
+                'date' => substr((string) $row['created_at'], 0, 10),
+            );
+
+            $allocated[(int) $row['payment_id']] = true;
+        }
+
+        // Payments taken before periods were tracked still belong on the breakdown, so they are
+        // grouped under the year they cleared instead of disappearing from the admin's view.
+        $classifications = $this->paymentClassificationsForRegistration($registration);
+
+        foreach ((array) $registration['payments'] as $payment) {
+            $paymentId = (int) $payment['id'];
+
+            if ($paymentId === 0 || isset($allocated[$paymentId])) {
+                continue;
+            }
+
+            if (! isset($classifications[$paymentId]) || $classifications[$paymentId]['type'] !== 'rent') {
+                continue;
+            }
+
+            $periodKey = trim((string) $classifications[$paymentId]['periodKey']);
+            $groupKey = $periodKey !== '' ? $periodKey : 'unallocated';
+
+            if (! isset($groups[$groupKey])) {
+                $groups[$groupKey] = array();
+            }
+
+            $groups[$groupKey][] = array(
+                'paymentId' => $paymentId,
+                'amount' => (int) $payment['amount'],
+                'channel' => (string) $payment['channel'],
+                'description' => (string) $payment['description'],
+                'reference' => (string) $payment['reference'],
+                'date' => substr((string) $payment['createdAt'], 0, 10),
+            );
+        }
+
+        return $groups;
+    }
+
+    /**
+     * The service charge payments allocated to each month, with the part of the payment that covers
+     * that month.
+     */
+    public function serviceChargeMonthPaymentsForRegistration(array $registration)
+    {
+        $groups = array();
+
+        foreach ((array) $this->database->fetchAll(
+            'SELECT a.service_month, a.amount_paid, p.id AS payment_id, p.channel, p.description, p.reference, p.created_at
+             FROM service_charge_allocations a
+             INNER JOIN payments p ON p.id = a.payment_id
+             WHERE a.unit_table = :unit_table AND a.unit_id = :unit_id
+             ORDER BY a.service_month ASC, p.created_at ASC',
+            array('unit_table' => (string) $registration['unitTable'], 'unit_id' => (int) $registration['unitId'])
+        ) as $row) {
+            $monthKey = (string) $row['service_month'];
+
+            if ($monthKey === '') {
+                continue;
+            }
+
+            if (! isset($groups[$monthKey])) {
+                $groups[$monthKey] = array();
+            }
+
+            $groups[$monthKey][] = array(
+                'paymentId' => (int) $row['payment_id'],
+                'amount' => (int) $row['amount_paid'],
+                'channel' => (string) $row['channel'],
+                'description' => (string) $row['description'],
+                'reference' => (string) $row['reference'],
+                'date' => substr((string) $row['created_at'], 0, 10),
+            );
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Returns the chosen service charge period together with the months inside its window.
+     */
+    private function serviceChargePeriodMonthsForRegistration(array $registration, $periodKey)
+    {
+        $period = null;
+        $months = array();
+
+        foreach ((array) $this->serviceChargePeriodsForRegistration($registration)['periods'] as $candidate) {
+            if ((string) $candidate['key'] === (string) $periodKey) {
+                $period = $candidate;
+                break;
+            }
+        }
+
+        // A single month can be paid on its own from the breakdown, so month keys are looked up too.
+        if (! $period && preg_match('/^\d{4}-\d{2}$/', (string) $periodKey)) {
+            foreach ((array) $this->serviceChargeMonthPeriodsForRegistration($registration)['periods'] as $candidate) {
+                if ((string) $candidate['key'] === (string) $periodKey) {
+                    $period = $candidate;
+                    break;
+                }
+            }
+        }
+
+        if (! $period) {
+            return array(null, array());
+        }
+
+        foreach ((array) $this->serviceChargeSummaryForRegistration($registration)['months'] as $month) {
+            $monthKey = substr((string) $month['serviceMonth'], 0, 7);
+
+            if ($monthKey >= $period['windowStart'] && $monthKey <= $period['windowEnd']) {
+                $months[] = $month;
+            }
+        }
+
+        return array($period, $months);
+    }
+
+    private function shortDate($value)
+    {
+        $value = trim((string) $value);
+        $ts = $value !== '' ? @strtotime($value) : false;
+
+        return $ts !== false && $ts > 0 ? date('d M Y', $ts) : $value;
     }
 
     public function priorTenureBreakdown(array $historyRow)

@@ -20,6 +20,11 @@ $sc = $tenant['scSummary'];
 $rentYears = $tenant['rentYears'];
 $classifications = $tenant['paymentTypes'];
 $tenureBlocks = $tenant['tenureBlocks'];
+$rentPeriods = $tenant['rentPeriods'];
+$scPeriods = $tenant['scPeriods'];
+$scMonthPeriods = $tenant['scMonthPeriods'];
+$rentPeriodPayments = $tenant['rentPeriodPayments'];
+$scMonthPayments = $tenant['scMonthPayments'];
 
 $rentOwed = (int) $balances['totalOwed'];
 $scOwed = (int) $sc['outstanding'];
@@ -83,11 +88,18 @@ $rentPayments = array();
 $serviceChargePayments = array();
 $otherPayments = array();
 
-foreach ((array) $tenant['payments'] as $payment) {
-    $meta = isset($classifications[(int) $payment['id']]) ? $classifications[(int) $payment['id']] : array('type' => 'other', 'rentYearNumber' => 0, 'rentYearLabel' => '', 'settlesArrears' => false);
+foreach (array_keys((array) $tenant['payments']) as $paymentIndex) {
+    $payment = (array) $tenant['payments'][$paymentIndex];
+    $meta = isset($classifications[(int) $payment['id']]) ? $classifications[(int) $payment['id']] : array('type' => 'other', 'rentYearNumber' => 0, 'rentYearLabel' => '', 'settlesArrears' => false, 'periodKey' => '');
     $payment['metaType'] = (string) $meta['type'];
     $payment['metaYearLabel'] = (string) $meta['rentYearLabel'];
     $payment['metaSettlesArrears'] = (bool) $meta['settlesArrears'];
+    $payment['metaPeriodKey'] = (string) $meta['periodKey'];
+    $tenant['payments'][$paymentIndex] = $payment;
+
+    if (! isset($typeLabels[$payment['metaType']])) {
+        $payment['metaType'] = 'other';
+    }
 
     if ($payment['metaType'] === 'rent') {
         $rentPayments[] = $payment;
@@ -101,6 +113,83 @@ foreach ((array) $tenant['payments'] as $payment) {
 $activeAdminPage = 'tenants';
 $adminTitle = 'Edit the tenancy payments.';
 $adminDescription = 'Review the payments posted to this tenant, change the rent or service charge a payment settles, and see how each one clears the arrears.';
+
+/**
+ * One editable line of the breakdown: what is billed, what has been paid against it, the payments
+ * already sitting on that period, and a form to post more straight against the period.
+ */
+$renderBreakdownEditor = function (array $period, $chargeType, array $payments) use ($tenant, $unitTable) {
+    $chargeType = (string) $chargeType;
+    $periodKey = (string) $period['key'];
+    $remaining = (int) $period['remaining'];
+    $slug = $chargeType . '-' . preg_replace('/[^a-z0-9]+/i', '-', $periodKey);
+    $isSettled = $remaining <= 0;
+    ?>
+    <div class="breakdown-editor" data-breakdown-row>
+        <div class="breakdown-editor__payments">
+            <?php if ((array) $payments === array()): ?>
+                <p class="muted-text" style="margin:0">Nothing has been posted against this period yet.</p>
+            <?php else: ?>
+                <?php foreach ($payments as $payment): ?>
+                    <div class="breakdown-editor__payment">
+                        <span>
+                            <strong><?= htmlspecialchars(app_currency((int) $payment['amount']), ENT_QUOTES, 'UTF-8') ?></strong>
+                            <span class="muted-text" style="display:block; font-size:.78rem">
+                                <?= htmlspecialchars((string) $payment['date'], ENT_QUOTES, 'UTF-8') ?>
+                                &middot; <?= htmlspecialchars(ucwords((string) $payment['channel']), ENT_QUOTES, 'UTF-8') ?>
+                                <?php if ((string) $payment['reference'] !== ''): ?>
+                                    &middot; <?= htmlspecialchars((string) $payment['reference'], ENT_QUOTES, 'UTF-8') ?>
+                                <?php endif; ?>
+                            </span>
+                        </span>
+                        <span class="breakdown-editor__actions">
+                            <a class="ghost-button" href="#payment-<?= (int) $payment['paymentId'] ?>">Edit</a>
+                            <button
+                                type="submit"
+                                class="ghost-button danger-button"
+                                form="remove-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>-<?= (int) $payment['paymentId'] ?>"
+                                onclick="return confirm('Remove this payment from the ledger? The period goes back to what is still owing.')"
+                            >Remove</button>
+                        </span>
+                    </div>
+                    <form id="remove-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>-<?= (int) $payment['paymentId'] ?>" action="<?= htmlspecialchars(app_url('admin-tenant-payment-delete'), ENT_QUOTES, 'UTF-8') ?>" method="post" hidden>
+                        <input type="hidden" name="unit_table" value="<?= htmlspecialchars((string) $unitTable, ENT_QUOTES, 'UTF-8') ?>">
+                        <input type="hidden" name="unit_id" value="<?= (int) $tenant['unitId'] ?>">
+                        <input type="hidden" name="payment_id" value="<?= (int) $payment['paymentId'] ?>">
+                    </form>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+
+        <form action="<?= htmlspecialchars(app_url('admin-tenant-period-payment'), ENT_QUOTES, 'UTF-8') ?>" method="post" class="breakdown-editor__form">
+            <input type="hidden" name="unit_table" value="<?= htmlspecialchars((string) $unitTable, ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="unit_id" value="<?= (int) $tenant['unitId'] ?>">
+            <input type="hidden" name="charge_type" value="<?= htmlspecialchars($chargeType, ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="period_key" value="<?= htmlspecialchars($periodKey, ENT_QUOTES, 'UTF-8') ?>">
+
+            <label for="amount-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>">Amount</label>
+            <input id="amount-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>" name="amount" type="number" min="1" step="1" value="<?= $remaining > 0 ? $remaining : '' ?>" <?= $isSettled ? 'disabled' : '' ?> required>
+
+            <label for="date-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>">Date</label>
+            <input id="date-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>" name="paid_at" type="date" value="<?= htmlspecialchars(date('Y-m-d'), ENT_QUOTES, 'UTF-8') ?>" <?= $isSettled ? 'disabled' : '' ?>>
+
+            <label for="channel-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>">Channel</label>
+            <select id="channel-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>" name="channel" <?= $isSettled ? 'disabled' : '' ?>>
+                <?php foreach (array('cash', 'transfer', 'pos', 'cheque') as $channel): ?>
+                    <option value="<?= htmlspecialchars($channel, ENT_QUOTES, 'UTF-8') ?>"<?= $channel === 'transfer' ? ' selected' : '' ?>><?= htmlspecialchars(ucfirst($channel), ENT_QUOTES, 'UTF-8') ?></option>
+                <?php endforeach; ?>
+            </select>
+
+            <label for="label-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>">Description</label>
+            <input id="label-<?= htmlspecialchars($slug, ENT_QUOTES, 'UTF-8') ?>" name="label" type="text" placeholder="Optional note" <?= $isSettled ? 'disabled' : '' ?>>
+
+            <button type="submit" class="solid-button" <?= $isSettled ? 'disabled' : '' ?>>
+                <?= $isSettled ? 'Settled' : 'Post payment' ?>
+            </button>
+        </form>
+    </div>
+    <?php
+};
 
 require dirname(__DIR__) . '/partials/admin-header.php';
 ?>
@@ -117,6 +206,8 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-tenants', array('edit_tenant' => $tenant['unitId'], 'unit_table' => $unitTable)), ENT_QUOTES, 'UTF-8') ?>">Edit tenant information</a>
                 <a class="solid-button" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $unitTable, 'unit_id' => $tenant['unitId'], 'type' => 'rent')), ENT_QUOTES, 'UTF-8') ?>">Record rent payment</a>
                 <a class="solid-button solid-button-navy" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $unitTable, 'unit_id' => $tenant['unitId'], 'type' => 'service_charge')), ENT_QUOTES, 'UTF-8') ?>">Record SC payment</a>
+                <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $unitTable, 'unit_id' => $tenant['unitId'], 'type' => 'deposit')), ENT_QUOTES, 'UTF-8') ?>">Record deposit</a>
+                <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $unitTable, 'unit_id' => $tenant['unitId'], 'type' => 'other')), ENT_QUOTES, 'UTF-8') ?>">Record other</a>
             </div>
         </div>
 
@@ -171,59 +262,75 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             </article>
         </div>
 
-        <?php if ((int) $rentYears['totalRemaining'] > 0 || (int) $rentYears['totalArrears'] > 0): ?>
-            <details class="prior-tenure-block" open style="border:1px solid var(--line); border-radius:12px; margin-bottom:16px; padding:14px 18px;">
-                <summary style="cursor:pointer; font-weight:600;">Rent by year of the tenure</summary>
-                <div class="manager-stats" style="margin:12px 0">
-                    <article>
-                        <span>Total billed</span>
-                        <strong><?= htmlspecialchars(app_currency((int) $rentYears['totalRates']), ENT_QUOTES, 'UTF-8') ?></strong>
-                    </article>
-                    <article>
-                        <span>Total paid</span>
-                        <strong><?= htmlspecialchars(app_currency((int) $rentYears['totalPaid']), ENT_QUOTES, 'UTF-8') ?></strong>
-                    </article>
-                    <article>
-                        <span>Arrears</span>
-                        <strong<?= (int) $rentYears['totalArrears'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency((int) $rentYears['totalArrears']), ENT_QUOTES, 'UTF-8') ?></strong>
-                    </article>
+        <details class="prior-tenure-block" open style="border:1px solid var(--line); border-radius:12px; margin-bottom:16px; padding:14px 18px;">
+            <summary style="cursor:pointer; font-weight:600;">Rent by year of the tenure</summary>
+            <p class="muted-text" style="margin:10px 0 0">Every year can be paid, adjusted or cleared on its own. Posting a payment here keeps it against that year; editing or removing it stays in the history below.</p>
+            <div class="manager-stats" style="margin:12px 0">
+                <article>
+                    <span>Total billed</span>
+                    <strong><?= htmlspecialchars(app_currency((int) $rentPeriods['totalBilled']), ENT_QUOTES, 'UTF-8') ?></strong>
+                </article>
+                <article>
+                    <span>Total paid</span>
+                    <strong><?= htmlspecialchars(app_currency((int) $rentPeriods['totalPaid']), ENT_QUOTES, 'UTF-8') ?></strong>
+                </article>
+                <article>
+                    <span>Arrears</span>
+                    <strong<?= $rentOwed > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($rentOwed), ENT_QUOTES, 'UTF-8') ?></strong>
+                </article>
+            </div>
+            <div class="record-table">
+                <div class="record-table-row record-table-head">
+                    <span>Year</span>
+                    <span>Billed</span>
+                    <span>Paid</span>
+                    <span>Remaining</span>
+                    <span>Adjust</span>
                 </div>
-                <div class="record-table">
-                    <div class="record-table-row record-table-head">
-                        <span>Year</span>
-                        <span>Billed</span>
-                        <span>Paid</span>
-                        <span>Remaining</span>
+                <?php foreach ((array) $rentPeriods['periods'] as $period): ?>
+                    <?php $periodKey = (string) $period['key']; ?>
+                    <div class="record-table-row record-table-row--breakdown<?= (int) $period['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
+                        <span>
+                            <strong><?= htmlspecialchars((string) $period['label'], ENT_QUOTES, 'UTF-8') ?></strong>
+                            <?php if ((int) $period['isArrears']): ?>
+                                <span class="type-pill pill-owing" style="margin-left:8px">Arrears</span>
+                            <?php endif; ?>
+                            <?php if (! empty($period['isCurrent'])): ?>
+                                <span class="type-pill pill-active" style="margin-left:8px">Running year</span>
+                            <?php endif; ?>
+                        </span>
+                        <span><?= htmlspecialchars(app_currency((int) $period['billed']), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span><?= htmlspecialchars(app_currency((int) $period['paid']), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span>
+                            <strong<?= (int) $period['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency((int) $period['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
+                        </span>
+                        <span>
+                            <?php $renderBreakdownEditor($period, 'rent', isset($rentPeriodPayments[$periodKey]) ? (array) $rentPeriodPayments[$periodKey] : array()); ?>
+                        </span>
                     </div>
-                    <?php foreach ((array) $rentYears['years'] as $year): ?>
-                        <div class="record-table-row<?= (int) $year['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
-                            <span>
-                                <strong>Year <?= (int) $year['yearNumber'] ?></strong>
-                                <span class="muted-text" style="display:block; font-size:.78rem"><?= htmlspecialchars((string) $year['yearStart'] . ' → ' . $year['yearEnd'], ENT_QUOTES, 'UTF-8') ?></span>
-                            </span>
-                            <span><?= htmlspecialchars(app_currency((int) $year['annualRent']), ENT_QUOTES, 'UTF-8') ?></span>
-                            <span><?= htmlspecialchars(app_currency((int) $year['paid']), ENT_QUOTES, 'UTF-8') ?></span>
-                            <span>
-                                <strong<?= (int) $year['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency((int) $year['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
-                                <?php if ((int) $year['isArrears']): ?>
-                                    <span class="type-pill pill-owing" style="margin-left:8px">Arrears</span>
-                                <?php endif; ?>
-                            </span>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </details>
-        <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+
+            <div data-unallocated-payments style="margin-top:14px">
+                <p class="muted-text" style="margin:0 0 8px">Rent payments not tied to one year of the tenure. They still clear the rent balance, oldest year first.</p>
+                <?php $renderBreakdownEditor(array('key' => 'unallocated', 'label' => 'Unallocated rent payments', 'billed' => 0, 'paid' => 0, 'remaining' => 0, 'isSettled' => true), 'rent', isset($rentPeriodPayments['unallocated']) ? (array) $rentPeriodPayments['unallocated'] : array()); ?>
+            </div>
+        </details>
 
         <?php
-        $renderPaymentEditor = function (array $payment) use ($tenant, $unitTable, $typeLabels, $typeTargets) {
+        $renderPaymentEditor = function (array $payment) use ($tenant, $unitTable, $typeLabels, $typeTargets, $rentPeriods, $scPeriods) {
             $paymentId = (int) $payment['id'];
             $type = (string) $payment['metaType'];
+            if (! isset($typeTargets[$type])) {
+                $type = 'other';
+            }
+
             $target = $typeTargets[$type];
             $label = $payment['description'];
             $prefix = $type === 'rent' ? 'Rent payment' : ($type === 'service_charge' ? 'Service charge' : ($type === 'deposit' ? 'Deposit payment' : 'Other payment'));
             $customLabel = stripos($label, $prefix . ' - ') === 0 ? substr($label, strlen($prefix) + 3) : $label;
             $paidDate = $payment['createdAt'] !== '' ? substr($payment['createdAt'], 0, 10) : '';
+            $currentPeriodKey = (string) $payment['metaPeriodKey'];
             ?>
             <form action="<?= htmlspecialchars(app_url('admin-tenant-payment-update'), ENT_QUOTES, 'UTF-8') ?>" method="post" class="payment-editor" data-payment-editor>
                 <input type="hidden" name="unit_table" value="<?= htmlspecialchars((string) $unitTable, ENT_QUOTES, 'UTF-8') ?>">
@@ -250,6 +357,29 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <?php foreach ($typeLabels as $typeKey => $typeLabel): ?>
                                 <option value="<?= htmlspecialchars((string) $typeKey, ENT_QUOTES, 'UTF-8') ?>"<?= $typeKey === $type ? ' selected' : '' ?>><?= htmlspecialchars((string) $typeLabel, ENT_QUOTES, 'UTF-8') ?></option>
                             <?php endforeach; ?>
+                        </select>
+                    </span>
+                    <span style="flex:1; min-width:260px">
+                        <label for="payment-period-<?= $paymentId ?>">Applied to</label>
+                        <select id="payment-period-<?= $paymentId ?>" name="period_key" data-payment-period>
+                            <?php if ((array) $rentPeriods['periods'] !== array()): ?>
+                                <optgroup label="Rent year of the tenure" data-period-group="rent">
+                                    <?php foreach ((array) $rentPeriods['periods'] as $period): ?>
+                                        <option value="<?= htmlspecialchars((string) $period['key'], ENT_QUOTES, 'UTF-8') ?>" data-period-type="rent"<?= (string) $period['key'] === $currentPeriodKey ? ' selected' : '' ?>>
+                                            <?= htmlspecialchars((string) $period['label'], ENT_QUOTES, 'UTF-8') ?> — <?= ! empty($period['isSettled']) ? 'settled' : htmlspecialchars(app_currency((int) $period['remaining']), ENT_QUOTES, 'UTF-8') . ' owing' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            <?php endif; ?>
+                            <?php if ((array) $scPeriods['periods'] !== array()): ?>
+                                <optgroup label="Service charge billing year" data-period-group="service_charge">
+                                    <?php foreach ((array) $scPeriods['periods'] as $period): ?>
+                                        <option value="<?= htmlspecialchars((string) $period['key'], ENT_QUOTES, 'UTF-8') ?>" data-period-type="service_charge"<?= (string) $period['key'] === $currentPeriodKey ? ' selected' : '' ?>>
+                                            <?= htmlspecialchars((string) $period['label'], ENT_QUOTES, 'UTF-8') ?> — <?= ! empty($period['isSettled']) ? 'settled' : htmlspecialchars(app_currency((int) $period['remaining']), ENT_QUOTES, 'UTF-8') . ' owing' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            <?php endif; ?>
                         </select>
                     </span>
                     <span style="min-width:130px">
@@ -344,26 +474,34 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             </article>
         </div>
 
-        <?php if ((array) $sc['months'] !== array()): ?>
+        <?php if ((array) $scMonthPeriods['periods'] !== array()): ?>
             <details class="prior-tenure-block" style="border:1px solid var(--line); border-radius:12px; margin-bottom:16px; padding:14px 18px;">
                 <summary style="cursor:pointer; font-weight:600;">Service charge month by month</summary>
+                <p class="muted-text" style="margin:10px 0 0">Each month can be paid, adjusted or cleared on its own. Posting a payment here puts it against that month only, so a single month can be settled without touching the rest of the year.</p>
                 <div class="record-table" style="margin-top:12px">
                     <div class="record-table-row record-table-head">
                         <span>Month</span>
                         <span>Rate</span>
                         <span>Paid</span>
                         <span>Remaining</span>
+                        <span>Adjust</span>
                     </div>
-                    <?php foreach ((array) $sc['months'] as $month): ?>
-                        <div class="record-table-row<?= (int) $month['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
-                            <span><strong><?= htmlspecialchars((string) $month['serviceMonth'], ENT_QUOTES, 'UTF-8') ?></strong></span>
-                            <span><?= htmlspecialchars(app_currency((int) $month['rate']), ENT_QUOTES, 'UTF-8') ?></span>
-                            <span><?= htmlspecialchars(app_currency((int) $month['paid']), ENT_QUOTES, 'UTF-8') ?></span>
+                    <?php foreach ((array) $scMonthPeriods['periods'] as $month): ?>
+                        <?php $monthKey = (string) $month['key']; ?>
+                        <div class="record-table-row record-table-row--breakdown<?= (int) $month['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
                             <span>
-                                <strong<?= (int) $month['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency((int) $month['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
+                                <strong><?= htmlspecialchars((string) $month['label'], ENT_QUOTES, 'UTF-8') ?></strong>
                                 <?php if (! empty($month['isArrears']) && (int) $month['remaining'] > 0): ?>
                                     <span class="type-pill pill-owing" style="margin-left:8px">Arrears</span>
                                 <?php endif; ?>
+                            </span>
+                            <span><?= htmlspecialchars(app_currency((int) $month['billed']), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span><?= htmlspecialchars(app_currency((int) $month['paid']), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span>
+                                <strong<?= (int) $month['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency((int) $month['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
+                            </span>
+                            <span>
+                                <?php $renderBreakdownEditor($month, 'service_charge', isset($scMonthPayments[$monthKey]) ? (array) $scMonthPayments[$monthKey] : array()); ?>
                             </span>
                         </div>
                     <?php endforeach; ?>
@@ -524,12 +662,57 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         });
     }
 
+    // The breakdown rows link straight to the editor of a payment, so the matching editor is
+    // opened in the history section before the page jumps to it.
+    Array.prototype.slice.call(document.querySelectorAll('a[href^="#payment-"]')).forEach(function (link) {
+        link.addEventListener('click', function () {
+            var paymentId = link.getAttribute('href').replace('#payment-', '');
+
+            if (!picker) {
+                return;
+            }
+
+            picker.value = paymentId;
+            picker.dispatchEvent(new Event('change'));
+        });
+    });
+
+    // A payment that is not tied to one period is grouped here so it is never hidden from the admin.
+    Array.prototype.slice.call(document.querySelectorAll('[data-unallocated-payments]')).forEach(function (panel) {
+        if (panel.querySelector('.breakdown-editor__payment') === null) {
+            panel.parentNode.removeChild(panel);
+        }
+    });
+
     Array.prototype.slice.call(document.querySelectorAll('[data-payment-editor]')).forEach(function (editor) {
         var typeSelect = editor.querySelector('[data-payment-type]');
+        var periodSelect = editor.querySelector('[data-payment-period]');
         var amountInput = editor.querySelector('[data-payment-amount]');
         var labelInput = editor.querySelector('[data-payment-label]');
         var noteEl = editor.querySelector('[data-payment-target-note]');
         var balanceEl = editor.querySelector('[data-payment-balance-note]');
+
+        var syncPeriods = function () {
+            if (!periodSelect || !typeSelect) {
+                return;
+            }
+
+            var wanted = typeSelect.value === 'rent' ? 'rent' : (typeSelect.value === 'service_charge' ? 'service_charge' : '');
+            var firstEnabled = null;
+
+            Array.prototype.slice.call(periodSelect.options).forEach(function (option) {
+                var matches = wanted !== '' && option.getAttribute('data-period-type') === wanted;
+                option.disabled = !matches;
+
+                if (matches && firstEnabled === null) {
+                    firstEnabled = option;
+                }
+            });
+
+            if (periodSelect.selectedOptions.length === 0 || periodSelect.selectedOptions[0].disabled) {
+                periodSelect.value = firstEnabled ? firstEnabled.value : '';
+            }
+        };
 
         var refresh = function (resetLabel) {
             var target = targets[typeSelect.value];
@@ -558,13 +741,14 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         };
 
         if (typeSelect) {
-            typeSelect.addEventListener('change', function () { refresh(true); });
+            typeSelect.addEventListener('change', function () { syncPeriods(); refresh(true); });
         }
 
         if (amountInput) {
             amountInput.addEventListener('input', function () { refresh(false); });
         }
 
+        syncPeriods();
         refresh(false);
     });
 })();

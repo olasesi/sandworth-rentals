@@ -423,6 +423,24 @@ CREATE TABLE IF NOT EXISTS service_charge_allocations (
     KEY sc_alloc_month_idx (unit_table, unit_id, service_month)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS rent_period_allocations (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    payment_id INT UNSIGNED NOT NULL,
+    property_id INT UNSIGNED NOT NULL,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    period_key VARCHAR(20) NOT NULL DEFAULT '',
+    period_start DATE DEFAULT NULL,
+    period_end DATE DEFAULT NULL,
+    amount_paid INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY rent_alloc_payment_idx (payment_id),
+    KEY rent_alloc_unit_idx (unit_table, unit_id),
+    KEY rent_alloc_period_idx (unit_table, unit_id, period_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS key_collections (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     property_id INT UNSIGNED NOT NULL DEFAULT 0,

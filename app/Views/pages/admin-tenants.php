@@ -390,27 +390,11 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                 </div>
                             </div>
 
-                            <span class="eyebrow" style="display:block; margin:20px 0 12px">Other charges</span>
-                            <div class="admin-form-grid">
-                                <div class="admin-field">
-                                    <label for="renew-legal-fee">Legal fee (5% of yearly rent)</label>
-                                    <input id="renew-legal-fee" name="legal_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('legal_fee', $timelineTenant['legalFee']), ENT_QUOTES, 'UTF-8') ?>">
-                                </div>
-                                <div class="admin-field">
-                                    <label for="renew-vat-fee">VAT (7.5% of yearly rent)</label>
-                                    <input id="renew-vat-fee" name="vat_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('vat_fee', $timelineTenant['vatFee']), ENT_QUOTES, 'UTF-8') ?>">
-                                </div>
-                                <div class="admin-field">
-                                    <label for="renew-subscription-form">Subscription form</label>
-                                    <input id="renew-subscription-form" name="subscription_form" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('subscription_form', $timelineTenant['subscriptionForm']), ENT_QUOTES, 'UTF-8') ?>">
-                                </div>
-                                <?php if ((string) $timelineTenant['unitTable'] === 'mall_shops'): ?>
-                                    <div class="admin-field">
-                                        <label for="renew-toilet-fee">Toilet</label>
-                                        <input id="renew-toilet-fee" name="toilet_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('toilet_fee', $timelineTenant['toiletFee']), ENT_QUOTES, 'UTF-8') ?>">
-                                    </div>
-                                <?php endif; ?>
-                            </div>
+                            <p class="muted-text" style="margin:0 0 14px">
+                                The legal fee, VAT, subscription form, and toilet charges are paid once when the
+                                tenancy is first registered, so they are not charged again on this renewal and
+                                carry over from the current tenure.
+                            </p>
 
                             <div class="admin-field">
                                 <label for="renew-notes">Notes</label>
@@ -643,7 +627,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         </section>
     <?php endif; ?>
 
-    <?php if ($timelineTenant): ?>
+    <?php if ($timelineTenant && ! $isEdit): ?>
         <section class="admin-section">
             <?php $tenureBlocks = isset($timelineTenant['tenureBlocks']) ? $timelineTenant['tenureBlocks'] : null; ?>
             <?php if ($tenureBlocks !== null && $tenureBlocks['tenures'] !== array()): ?>
