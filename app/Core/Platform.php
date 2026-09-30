@@ -3197,6 +3197,12 @@ final class Platform
         $vatFee = $this->extractAmount(isset($payload['vat_fee']) ? $payload['vat_fee'] : 0);
         $subscriptionForm = $this->extractAmount(isset($payload['subscription_form']) ? $payload['subscription_form'] : 0);
         $toiletFee = $this->extractAmount(isset($payload['toilet_fee']) ? $payload['toilet_fee'] : 0);
+
+        // The toilet charge only applies to the mall units, so it is ignored elsewhere.
+        if ($targetTable !== 'mall_shops') {
+            $toiletFee = 0;
+        }
+
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
         if ($tenure === '') {
@@ -3844,6 +3850,30 @@ final class Platform
         $securityDeposit = isset($payload['security_deposit']) && trim((string) $payload['security_deposit']) !== ''
             ? $this->extractAmount($payload['security_deposit'])
             : (int) $registration['securityDeposit'];
+
+        $chargeColumns = array('legal_fee', 'vat_fee', 'subscription_form', 'toilet_fee');
+        $extraCharges = array(
+            'legal_fee' => isset($payload['legal_fee']) && trim((string) $payload['legal_fee']) !== ''
+                ? $this->extractAmount($payload['legal_fee']) : (int) $registration['legalFee'],
+            'vat_fee' => isset($payload['vat_fee']) && trim((string) $payload['vat_fee']) !== ''
+                ? $this->extractAmount($payload['vat_fee']) : (int) $registration['vatFee'],
+            'subscription_form' => isset($payload['subscription_form']) && trim((string) $payload['subscription_form']) !== ''
+                ? $this->extractAmount($payload['subscription_form']) : (int) $registration['subscriptionForm'],
+            'toilet_fee' => isset($payload['toilet_fee']) && trim((string) $payload['toilet_fee']) !== ''
+                ? $this->extractAmount($payload['toilet_fee']) : (int) $registration['toiletFee'],
+        );
+
+        if ($unitTable !== 'mall_shops') {
+            $extraCharges['toilet_fee'] = 0;
+        }
+
+        foreach ($extraCharges as $extraCharge) {
+            if ($extraCharge < 0) {
+                return array(false, 'The other charges on a tenancy cannot be negative.');
+            }
+        }
+
+        $rentPaidAtRenewal = $this->extractAmount(isset($payload['rent_paid_at_renewal']) ? $payload['rent_paid_at_renewal'] : 0);
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
         if ($tenure === '') {
@@ -3905,7 +3935,7 @@ final class Platform
 
         $this->syncUnitHistory($unitTable, array_merge($unit, array('status' => 'ended')));
 
-        $data = array(
+        $data = array_merge(array(
             'tenure' => $tenure,
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -3915,7 +3945,7 @@ final class Platform
             'status' => 'active',
             'notes' => $notes !== '' ? $notes : (string) $registration['notes'],
             'updated_at' => $now,
-        );
+        ), $extraCharges);
 
         $this->database->execute(
             'UPDATE `' . $unitTable . '` SET ' . $this->buildUnitUpdateSet($data) . ' WHERE id = :id AND property_id = :property_id',
@@ -3926,6 +3956,31 @@ final class Platform
 
         if ($renewed) {
             $this->syncUnitHistory($unitTable, $this->buildNormalizedUnitFromRegistration($renewed));
+        }
+
+        if ($rentPaidAtRenewal > 0 && $renewed) {
+            $rentReference = 'RENT-' . $unitId . '-RENEW-' . date('Ymd', strtotime($startDate));
+            $alreadyPosted = $this->database->fetchOne(
+                'SELECT id FROM payments WHERE property_id = :property_id AND unit_id = :unit_id AND reference = :reference',
+                array('property_id' => (int) $registration['propertyId'], 'unit_id' => $unitId, 'reference' => $rentReference)
+            );
+
+            if (! $alreadyPosted) {
+                $this->addUnitPaymentByAdmin(
+                    $unitTable,
+                    $unitId,
+                    array(
+                        'amount' => $rentPaidAtRenewal,
+                        'charge_type' => 'rent',
+                        'label' => 'Rent paid at renewal',
+                        'channel' => 'cash',
+                        'paid_at' => $startDate,
+                        'reference' => $rentReference,
+                        'notes' => 'Recorded when the tenure was renewed.',
+                    ),
+                    $adminUser
+                );
+            }
         }
 
         return array($renewed, $renewed ? null : 'The tenure could not be renewed.');
@@ -4173,6 +4228,214 @@ final class Platform
         }
 
         return array($this->findTenantRegistration($registration['unitTable'], $registration['unitId']), null);
+    }
+
+    /**
+     * Works out how an existing payment should be split, so the admin can change the type,
+     * amount, or date of a payment that was already posted without losing the history.
+     */
+    public function paymentClassificationForUnit(array $registration, array $payment)
+    {
+        $description = (string) $payment['description'];
+        $isServiceCharge = $this->database->fetchOne(
+            'SELECT id FROM service_charge_allocations WHERE payment_id = :payment_id LIMIT 1',
+            array('payment_id' => (int) $payment['id'])
+        ) !== null;
+
+        $isDeposit = stripos($description, 'deposit') !== false;
+        $isOther = stripos($description, 'rent') === false && stripos($description, 'service charge') === false;
+
+        if ($isServiceCharge) {
+            return 'service_charge';
+        }
+
+        if ($isDeposit) {
+            return 'deposit';
+        }
+
+        if ($isOther) {
+            return 'other';
+        }
+
+        return 'rent';
+    }
+
+    /**
+     * Tags every payment on a tenant with the type it is treated as, so the payment editor can
+     * show what each one settles and which arrears it is being applied to.
+     */
+    public function paymentClassificationsForRegistration(array $registration)
+    {
+        $classifications = array();
+        $rentYearIndex = 0;
+        $rentYears = $this->rentYearsForRegistration($registration);
+        $scSummary = $this->serviceChargeSummaryForRegistration($registration);
+        $rentStartTs = isset($registration['startDate']) ? @strtotime((string) $registration['startDate']) : false;
+        $currentRentYear = null;
+
+        foreach ((array) $rentYears['years'] as $year) {
+            $yearStartTs = @strtotime((string) $year['yearStart']);
+            $yearEndTs = @strtotime((string) $year['yearEnd']);
+
+            if ($yearStartTs !== false && $yearEndTs !== false && (int) $year['remaining'] > 0) {
+                $currentRentYear = $year;
+            }
+        }
+
+        foreach ((array) $registration['payments'] as $payment) {
+            $type = $this->paymentClassificationForUnit($registration, $payment);
+            $paidAt = (string) $payment['createdAt'];
+            $paidTimestamp = $paidAt !== '' ? @strtotime($paidAt) : false;
+            $yearNumber = 0;
+            $yearIsPast = false;
+
+            foreach ((array) $rentYears['years'] as $year) {
+                $yearStartTs = @strtotime((string) $year['yearStart']);
+                $yearEndTs = @strtotime((string) $year['yearEnd']);
+
+                if ($paidTimestamp === false || $yearStartTs === false || $yearEndTs === false) {
+                    continue;
+                }
+
+                if ($paidTimestamp >= $yearStartTs && $paidTimestamp <= $yearEndTs + 86400) {
+                    $yearNumber = (int) $year['yearNumber'];
+                    $yearIsPast = (int) $year['remaining'] > 0 && empty($year['isCurrentYear']);
+                }
+            }
+
+            $classifications[(int) $payment['id']] = array(
+                'type' => $type,
+                'rentYearNumber' => $yearNumber,
+                'rentYearLabel' => $yearNumber > 0 ? 'Year ' . $yearNumber : '',
+                'settlesArrears' => $type === 'rent'
+                    ? ($currentRentYear !== null && $yearNumber > 0 && $yearNumber < (int) $currentRentYear['yearNumber'])
+                    : ($type === 'service_charge' && $paidTimestamp !== false && $rentStartTs !== false
+                        ? strcmp(date('Y-m', $paidTimestamp), (string) $scSummary['currentYearStart']) < 0
+                        : false),
+            );
+
+            $rentYearIndex++;
+        }
+
+        return $classifications;
+    }
+
+    public function updateUnitPaymentByAdmin($paymentId, $unitTable, $unitId, array $payload)
+    {
+        $paymentId = (int) $paymentId;
+        $registration = $this->findTenantRegistration($unitTable, $unitId);
+
+        if (! $registration) {
+            return array(false, 'That tenant registration could not be found.');
+        }
+
+        $row = $this->database->fetchOne(
+            'SELECT * FROM payments WHERE id = :id AND property_id = :property_id AND unit_id = :unit_id',
+            array('id' => $paymentId, 'property_id' => (int) $registration['propertyId'], 'unit_id' => (int) $unitId)
+        );
+
+        if (! $row) {
+            return array(false, 'That payment is no longer on this tenant ledger.');
+        }
+
+        $existing = array(
+            'id' => (int) $row['id'],
+            'amount' => (int) $row['amount'],
+            'description' => (string) $row['description'],
+        );
+
+        $amount = $this->extractAmount(isset($payload['amount']) ? $payload['amount'] : 0);
+        $chargeType = trim(isset($payload['charge_type']) ? (string) $payload['charge_type'] : '');
+        $label = trim(isset($payload['label']) ? (string) $payload['label'] : '');
+        $channel = trim(isset($payload['channel']) ? (string) $payload['channel'] : 'cash');
+        $paidAt = $this->normalizeDateTimeInput(trim(isset($payload['paid_at']) ? (string) $payload['paid_at'] : ''));
+        $reference = trim(isset($payload['reference']) ? (string) $payload['reference'] : '');
+
+        if (! in_array($chargeType, array('rent', 'service_charge', 'deposit', 'other'), true)) {
+            $chargeType = $this->paymentClassificationForUnit($registration, $existing);
+        }
+
+        if ($amount <= 0) {
+            return array(false, 'Enter a valid payment amount.');
+        }
+
+        if ($paidAt === '') {
+            $paidAt = (string) $row['created_at'];
+        }
+
+        if ($channel === '') {
+            $channel = (string) $row['channel'];
+        }
+
+        if ($reference === '') {
+            $reference = (string) $row['reference'];
+        }
+
+        $baseDescription = $chargeType === 'rent' ? 'Rent payment' : ($chargeType === 'service_charge' ? 'Service charge' : ($chargeType === 'deposit' ? 'Deposit payment' : 'Other payment'));
+        $description = $label !== '' ? $baseDescription . ' - ' . $label : $baseDescription;
+
+        $this->database->execute(
+            'UPDATE payments SET amount = :amount, channel = :channel, reference = :reference, description = :description, created_at = :created_at WHERE id = :id',
+            array(
+                'amount' => $amount,
+                'channel' => $channel,
+                'reference' => $reference,
+                'description' => $description,
+                'created_at' => $paidAt,
+                'id' => $paymentId,
+            )
+        );
+
+        // The service charge months are re-allocated because the amount or type may have changed.
+        $this->database->execute(
+            'DELETE FROM service_charge_allocations WHERE payment_id = :payment_id',
+            array('payment_id' => $paymentId)
+        );
+
+        if ($chargeType === 'service_charge') {
+            $summary = $this->serviceChargeSummaryForRegistration($registration);
+            $maxPayable = (int) $summary['outstanding'];
+
+            if ($amount > $maxPayable) {
+                return array(
+                    $this->findTenantRegistration($unitTable, $unitId),
+                    'The payment was changed to service charge, but ' . $this->formatMoney($amount) . ' is more than the service charge payable of ' . $this->formatMoney($maxPayable) . '. Adjust the amount to the unpaid service charge.',
+                );
+            }
+
+            if ($maxPayable > 0) {
+                $leftOver = $amount;
+
+                foreach ((array) $summary['months'] as $month) {
+                    if ($leftOver <= 0) {
+                        break;
+                    }
+
+                    $remaining = (int) $month['remaining'];
+
+                    if ($remaining <= 0) {
+                        continue;
+                    }
+
+                    $monthlyPaid = min($leftOver, $remaining);
+                    $this->database->insert('service_charge_allocations', array(
+                        'payment_id' => $paymentId,
+                        'property_id' => (int) $registration['propertyId'],
+                        'unit_table' => (string) $registration['unitTable'],
+                        'unit_id' => (int) $unitId,
+                        'user_id' => (int) $registration['userId'],
+                        'service_month' => (string) $month['serviceMonth'],
+                        'rate_used' => (int) $month['rate'],
+                        'amount_paid' => $monthlyPaid,
+                        'created_at' => $paidAt,
+                    ));
+
+                    $leftOver -= $monthlyPaid;
+                }
+            }
+        }
+
+        return array($this->findTenantRegistration($unitTable, $unitId), null);
     }
 
     public function deleteUnitPaymentByAdmin($paymentId, $unitTable, $unitId)
@@ -4457,6 +4720,7 @@ final class Platform
             'totalRates' => 0,
             'totalPaid' => 0,
             'arrears' => 0,
+            'currentPeriod' => 0,
             'outstanding' => 0,
             'maxPayable' => 0,
         );
@@ -4495,6 +4759,7 @@ final class Platform
         $totalPaid = 0;
         $outstanding = 0;
         $arrears = 0;
+        $currentPeriod = 0;
 
         foreach ($monthList as $entry) {
             $serviceMonth = (string) $entry['serviceMonth'];
@@ -4516,6 +4781,8 @@ final class Platform
 
                 if ($isArrears) {
                     $arrears += $remaining;
+                } else {
+                    $currentPeriod += $remaining;
                 }
             }
 
@@ -4537,6 +4804,7 @@ final class Platform
             'totalRates' => $totalRates,
             'totalPaid' => $totalPaid,
             'arrears' => $arrears,
+            'currentPeriod' => $currentPeriod,
             'outstanding' => $outstanding,
             'maxPayable' => $outstanding,
         );

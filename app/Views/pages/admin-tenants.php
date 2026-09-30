@@ -194,7 +194,8 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <?php endif; ?>
                     <a class="ghost-button" href="<?= htmlspecialchars(app_url('admin-tenants', array('view_tenant' => $timelineTenant['unitId'], 'unit_table' => $timelineTenant['unitTable'])), ENT_QUOTES, 'UTF-8') ?>">&larr; Back to tenant</a>
                 </div>
-                <a class="solid-button solid-button-slate" href="<?= htmlspecialchars(app_url('admin-tenants', array('edit_tenant' => $timelineTenant['unitId'], 'unit_table' => $timelineTenant['unitTable'])), ENT_QUOTES, 'UTF-8') ?>">Edit this registration</a>
+                <a class="solid-button solid-button-slate" href="<?= htmlspecialchars(app_url('admin-tenants', array('edit_tenant' => $timelineTenant['unitId'], 'unit_table' => $timelineTenant['unitTable'])), ENT_QUOTES, 'UTF-8') ?>">Edit tenant information</a>
+                <a class="solid-button solid-button-navy" href="<?= htmlspecialchars(app_url('admin-tenant-payment-edit', array('unit_table' => $timelineTenant['unitTable'], 'unit_id' => $timelineTenant['unitId'])), ENT_QUOTES, 'UTF-8') ?>">Edit tenancy payments</a>
             </div>
             <div class="section-heading" style="margin-bottom:18px">
                 <div>
@@ -378,15 +379,43 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                 <label for="renew-service-charge">Monthly Service charge</label>
                                 <input id="renew-service-charge" name="service_charge" type="number" min="0" value="<?= htmlspecialchars($renewFieldValue('service_charge', $timelineTenant['serviceCharge']), ENT_QUOTES, 'UTF-8') ?>">
                             </div>
-                            <div class="admin-field">
-                                <label for="renew-security-deposit">Caution deposit</label>
-                                <input id="renew-security-deposit" name="security_deposit" type="number" min="0" value="<?= htmlspecialchars($renewFieldValue('security_deposit', $timelineTenant['securityDeposit']), ENT_QUOTES, 'UTF-8') ?>">
+                                <div class="admin-field">
+                                    <label for="renew-security-deposit">Caution deposit</label>
+                                    <input id="renew-security-deposit" name="security_deposit" type="number" min="0" value="<?= htmlspecialchars($renewFieldValue('security_deposit', $timelineTenant['securityDeposit']), ENT_QUOTES, 'UTF-8') ?>">
+                                </div>
+                                <div class="admin-field">
+                                    <label for="renew-rent-paid">Rent paid at renewal</label>
+                                    <input id="renew-rent-paid" name="rent_paid_at_renewal" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('rent_paid_at_renewal', 0), ENT_QUOTES, 'UTF-8') ?>">
+                                    <span class="muted-text" id="renew-rent-hint" style="display:block; margin-top:6px">Anything the tenant has already paid on the new term. It is posted to the ledger when the renewal is confirmed.</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="admin-field">
-                            <label for="renew-notes">Notes</label>
-                            <input id="renew-notes" name="notes" type="text" placeholder="Renewal reference, rent review, special terms">
-                        </div>
+
+                            <span class="eyebrow" style="display:block; margin:20px 0 12px">Other charges</span>
+                            <div class="admin-form-grid">
+                                <div class="admin-field">
+                                    <label for="renew-legal-fee">Legal fee (5% of yearly rent)</label>
+                                    <input id="renew-legal-fee" name="legal_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('legal_fee', $timelineTenant['legalFee']), ENT_QUOTES, 'UTF-8') ?>">
+                                </div>
+                                <div class="admin-field">
+                                    <label for="renew-vat-fee">VAT (7.5% of yearly rent)</label>
+                                    <input id="renew-vat-fee" name="vat_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('vat_fee', $timelineTenant['vatFee']), ENT_QUOTES, 'UTF-8') ?>">
+                                </div>
+                                <div class="admin-field">
+                                    <label for="renew-subscription-form">Subscription form</label>
+                                    <input id="renew-subscription-form" name="subscription_form" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('subscription_form', $timelineTenant['subscriptionForm']), ENT_QUOTES, 'UTF-8') ?>">
+                                </div>
+                                <?php if ((string) $timelineTenant['unitTable'] === 'mall_shops'): ?>
+                                    <div class="admin-field">
+                                        <label for="renew-toilet-fee">Toilet</label>
+                                        <input id="renew-toilet-fee" name="toilet_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars($renewFieldValue('toilet_fee', $timelineTenant['toiletFee']), ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="admin-field">
+                                <label for="renew-notes">Notes</label>
+                                <input id="renew-notes" name="notes" type="text" placeholder="Renewal reference, rent review, special terms">
+                            </div>
                         <div class="admin-modal-actions">
                             <button type="button" class="ghost-button" id="renew-tenant-cancel">Cancel</button>
                             <button type="submit" class="solid-button solid-button-good">Confirm renewal</button>
@@ -535,9 +564,10 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <label for="tenant-subscription-form">Subscription form</label>
                         <input id="tenant-subscription-form" name="subscription_form" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars((string) $formValue('subscription_form'), ENT_QUOTES, 'UTF-8') ?>">
                     </div>
-                    <div class="admin-field">
+                    <div class="admin-field" data-unit-group="mall_shops" style="<?= $selectedPropertyType === 'mall_shops' ? '' : 'display:none' ?>">
                         <label for="tenant-toilet-fee">Toilet</label>
                         <input id="tenant-toilet-fee" name="toilet_fee" type="number" min="0" step="1" placeholder="0" value="<?= htmlspecialchars((string) $formValue('toilet_fee'), ENT_QUOTES, 'UTF-8') ?>">
+                        <span class="muted-text" style="display:block; margin-top:6px">Only charged at L&rsquo;Arcade Mall.</span>
                     </div>
                 </div>
 
@@ -1366,6 +1396,33 @@ require dirname(__DIR__) . '/partials/admin-header.php';
     if (renewStartInput) { renewStartInput.addEventListener('change', recomputeRenewEnd); }
     if (renewTenureInput) { renewTenureInput.addEventListener('change', recomputeRenewEnd); }
     if (renewEndInput) { renewEndInput.addEventListener('input', function () { renewEndInput.dataset.touched = '1'; }); }
+
+    var renewRentInput = document.getElementById('renew-monthly-rent');
+    var renewPaidInput = document.getElementById('renew-rent-paid');
+    var renewHint = document.getElementById('renew-rent-hint');
+
+    function renderRenewHint() {
+        if (!renewHint) { return; }
+        var rent = toAmount(renewRentInput ? renewRentInput.value : 0);
+        var paid = toAmount(renewPaidInput ? renewPaidInput.value : 0);
+        var years = Math.max(1, toAmount(renewTenureInput ? renewTenureInput.value : 1));
+        var tenureTotal = rent * years;
+
+        if (rent <= 0) {
+            renewHint.textContent = 'Enter the yearly rent to see the rent for the new term.';
+        } else if (paid <= 0) {
+            renewHint.textContent = 'Nothing paid yet, so the full ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term stays payable.';
+        } else if (paid >= tenureTotal) {
+            renewHint.textContent = 'The tenant paid ' + formatterAmount(paid) + ', covering the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term.';
+        } else {
+            renewHint.textContent = 'Paid ' + formatterAmount(paid) + ', leaving ' + formatterAmount(tenureTotal - paid) + ' of the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term payable.';
+        }
+    }
+
+    if (renewRentInput) { renewRentInput.addEventListener('input', renderRenewHint); }
+    if (renewPaidInput) { renewPaidInput.addEventListener('input', renderRenewHint); }
+    if (renewTenureInput) { renewTenureInput.addEventListener('change', renderRenewHint); }
+    renderRenewHint();
 
     var addBtn = document.getElementById('add-tenant-btn');
     var addForm = document.getElementById('add-tenant-form');

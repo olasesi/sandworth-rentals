@@ -1373,6 +1373,53 @@ $router->post('admin-tenant-payment', function () use ($platform) {
     app_redirect('admin-tenants', array('edit_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
 });
 
+$router->get('admin-tenant-payment-edit', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_GET['unit_table']) ? (string) $_GET['unit_table'] : '';
+    $unitId = isset($_GET['unit_id']) ? (int) $_GET['unit_id'] : 0;
+    $registration = $platform->findTenantRegistration($unitTable, $unitId);
+
+    if (! $registration) {
+        App\Core\Flash::add('error', 'That tenant registration could not be found.');
+        app_redirect('admin-tenants');
+    }
+
+    $registration['balances'] = $platform->registrationBalanceBreakdown($registration);
+    $registration['scSummary'] = $platform->serviceChargeSummaryForRegistration($registration);
+    $registration['rentYears'] = $platform->rentYearsForRegistration($registration);
+    $registration['tenureBlocks'] = $platform->tenureBlocksForRegistration($registration);
+    $registration['scTenureBlocks'] = $platform->serviceChargeTenureBlocksForRegistration($registration);
+    $registration['paymentTypes'] = $platform->paymentClassificationsForRegistration($registration);
+
+    App\Core\View::render('pages/admin-tenant-payments', array(
+        'pageTitle' => 'Tenancy Payments | Sandworth Homes',
+        'activePage' => 'tenants',
+        'portfolio' => $platform->adminPortfolio(),
+        'registration' => $registration,
+        'oldInput' => App\Core\Flash::old(),
+    ));
+});
+
+$router->post('admin-tenant-payment-update', function () use ($platform) {
+    $viewer = App\Core\Auth::user($platform);
+    app_require_admin($viewer);
+
+    $unitTable = isset($_POST['unit_table']) ? (string) $_POST['unit_table'] : '';
+    $unitId = isset($_POST['unit_id']) ? (int) $_POST['unit_id'] : 0;
+    $paymentId = isset($_POST['payment_id']) ? (int) $_POST['payment_id'] : 0;
+    list($tenant, $message) = $platform->updateUnitPaymentByAdmin($paymentId, $unitTable, $unitId, $_POST);
+
+    if (! $tenant) {
+        App\Core\Flash::add('error', $message);
+        app_redirect('admin-tenants');
+    }
+
+    App\Core\Flash::add($message !== null && $message !== '' ? 'error' : 'success', $message !== null && $message !== '' ? $message : 'The payment was updated.');
+    app_redirect('admin-tenant-payment-edit', array('unit_table' => $tenant['unitTable'], 'unit_id' => $tenant['unitId']));
+});
+
 $router->post('admin-tenant-payment-delete', function () use ($platform) {
     $viewer = App\Core\Auth::user($platform);
     app_require_admin($viewer);
