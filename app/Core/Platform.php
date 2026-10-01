@@ -180,6 +180,15 @@ final class Platform
             KEY td_property_idx (property_id),
             KEY td_user_idx (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+
+        // Documents are grouped by kind, so the tenancy agreement and the key collection form are
+        // kept apart on the same registration.
+        $existing = $this->columnMapForTable('tenancy_documents');
+
+        if (! isset($existing['document_type'])) {
+            $this->database->execute('ALTER TABLE `tenancy_documents` ADD COLUMN `document_type` VARCHAR(40) NOT NULL DEFAULT \'tenancy_agreement\' AFTER `user_id`');
+            $this->database->execute('UPDATE `tenancy_documents` SET `document_type` = \'tenancy_agreement\' WHERE `document_type` = \'\'');
+        }
     }
 
     private function ensureKeyCollectionsTable()
@@ -3206,19 +3215,19 @@ final class Platform
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
         if ($tenure === '') {
-            return array(false, 'Enter the tenure or term for this tenant.');
+            return array(false, 'Enter the number of years for this tenant.');
         }
 
         if ($startDate === '') {
-            return array(false, 'Enter the tenure start date.');
+            return array(false, 'Enter the tenancy start date.');
         }
 
         if ($endDate === '') {
-            return array(false, 'Enter the tenure end date.');
+            return array(false, 'Enter the tenancy end date.');
         }
 
         if (strtotime($endDate) <= strtotime($startDate)) {
-            return array(false, 'The tenure end date must be after the start date.');
+            return array(false, 'The tenancy end date must be after the start date.');
         }
 
         if ($monthlyRent <= 0) {
@@ -3480,19 +3489,28 @@ final class Platform
                 $registration = $this->findTenantRegistration($targetTable, $newId);
             }
 
-            if (isset($files['tenancy_agreement'])) {
-                $this->deleteTenancyDocumentsForRegistration($registration['unitTable'], $registration['unitId']);
+            // Each document kind replaces only its own previous file, so uploading the key
+            // collection form never discards the tenancy agreement and the other way round.
+            foreach (array('tenancy_agreement' => 'tenancy_agreement', 'key_collection_form' => 'key_collection_form') as $fileKey => $documentType) {
+                if (! isset($files[$fileKey])) {
+                    continue;
+                }
 
-                list($documentStored, $documentError) = $this->storeTenancyDocument(
-                    $files['tenancy_agreement'],
+                $this->deleteTenancyDocumentsForRegistration($registration['unitTable'], $registration['unitId'], $documentType);
+
+                list($documentStored, $documentMessage) = $this->storeTenancyDocument(
+                    $files[$fileKey],
                     $registration['unitTable'],
                     $registration['propertyId'],
                     $registration['unitId'],
-                    $registration['userId']
+                    $registration['userId'],
+                    $documentType
                 );
 
-                if ($documentError !== '') {
-                    $registration['documentError'] = $documentError;
+                // The second slot carries the stored path on success, so only surface it as an
+                // error when the upload was actually rejected.
+                if (! $documentStored && $documentMessage !== '') {
+                    $registration['documentError'] = $documentMessage;
                 }
             }
 
@@ -3574,11 +3592,66 @@ final class Platform
             . '<table style="width:100%; max-width:600px; border-collapse:collapse; margin:16px 0;">'
             . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa; width:180px;">Property</td><td style="padding:8px;">' . htmlspecialchars($propertyTitle, ENT_QUOTES, 'UTF-8') . '</td></tr>'
             . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Unit / shop</td><td style="padding:8px;">' . htmlspecialchars($unitLabel, ENT_QUOTES, 'UTF-8') . '</td></tr>'
-            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Tenure</td><td style="padding:8px;">' . htmlspecialchars((string) $registration['tenure'], ENT_QUOTES, 'UTF-8') . ' year(s)</td></tr>'
-            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Tenure period</td><td style="padding:8px;">' . htmlspecialchars((string) $registration['startDate'], ENT_QUOTES, 'UTF-8') . ' to ' . htmlspecialchars((string) $registration['endDate'], ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Tenancy period</td><td style="padding:8px;">' . htmlspecialchars($this->tenurePeriodLabel($registration['startDate'], $registration['endDate']), ENT_QUOTES, 'UTF-8') . '</td></tr>'
             . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Monthly rent</td><td style="padding:8px;">' . htmlspecialchars(app_currency($registration['monthlyRent']), ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Yearly rent</td><td style="padding:8px;">' . htmlspecialchars(app_currency($this->registrationAnnualRent($registration)), ENT_QUOTES, 'UTF-8') . '</td></tr>'
             . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Service charge</td><td style="padding:8px;">' . htmlspecialchars(app_currency($registration['serviceCharge']), ENT_QUOTES, 'UTF-8') . '/month</td></tr>'
             . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Caution deposit</td><td style="padding:8px;">' . htmlspecialchars(app_currency($registration['securityDeposit']), ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '</table>';
+
+        // Everything else charged on this registration, so the tenant sees the full bill and not
+        // just the rent and deposit. Zero amounts are left out because nothing was charged for them.
+        $extraCharges = array(
+            'Legal fee' => (int) $registration['legalFee'],
+            'VAT' => (int) $registration['vatFee'],
+            'Subscription form' => (int) $registration['subscriptionForm'],
+            'Toilet charge' => (int) $registration['toiletFee'],
+        );
+
+        $chargeLines = '';
+
+        foreach ($extraCharges as $chargeLabel => $chargeAmount) {
+            if ($chargeAmount <= 0) {
+                continue;
+            }
+
+            $chargeLines .= '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa; width:180px;">'
+                . htmlspecialchars($chargeLabel, ENT_QUOTES, 'UTF-8')
+                . '</td><td style="padding:8px;">'
+                . htmlspecialchars(app_currency($chargeAmount), ENT_QUOTES, 'UTF-8')
+                . '</td></tr>';
+        }
+
+        if ($chargeLines !== '') {
+            $bodyHtml .= '<p style="margin:16px 0 0;">The following charges were also added to this registration:</p>'
+                . '<table style="width:100%; max-width:600px; border-collapse:collapse; margin:8px 0 16px;">'
+                . $chargeLines
+                . '</table>';
+        }
+
+        // The rent owed for the whole signed period and what has been paid towards it. Rent paid is
+        // summed straight from the payments on this unit because a registration payment made
+        // before a future tenancy start date is still money the tenant handed over.
+        $balances = $this->registrationBalanceBreakdown($registration);
+        $termTotal = (int) $balances['tenureTotal'];
+        $termYears = (int) $balances['tenureYears'];
+        $rentPaid = 0;
+
+        foreach ((array) $registration['payments'] as $payment) {
+            if (stripos((string) $payment['description'], 'rent') !== false) {
+                $rentPaid += (int) $payment['amount'];
+            }
+        }
+
+        $rentOwed = max(0, $termTotal - $rentPaid);
+        $rentYearsLabel = $termYears > 0
+            ? (string) $termYears . ' year' . ($termYears === 1 ? '' : 's')
+            : 'term';
+
+        $bodyHtml .= '<table style="width:100%; max-width:600px; border-collapse:collapse; margin:0 0 16px;">'
+            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa; width:180px;">Rent for the ' . htmlspecialchars($rentYearsLabel, ENT_QUOTES, 'UTF-8') . '</td><td style="padding:8px;">' . htmlspecialchars(app_currency($termTotal), ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Rent paid</td><td style="padding:8px;">' . htmlspecialchars(app_currency($rentPaid), ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:8px; font-weight:600; background:#f4f6fa;">Rent still payable</td><td style="padding:8px;">' . htmlspecialchars(app_currency($rentOwed), ENT_QUOTES, 'UTF-8') . '</td></tr>'
             . '</table>'
             . ($temporaryPassword !== ''
                 ? '<p style="margin-top:12px; padding:12px; border:1px dashed #c4ccdb; border-radius:6px; background:#f8fafc;"><strong style="color:#082c61;">Your sign-in password</strong><br>Email: ' . htmlspecialchars($toEmail, ENT_QUOTES, 'UTF-8') . '<br>Temporary password: <strong>' . htmlspecialchars($temporaryPassword, ENT_QUOTES, 'UTF-8') . '</strong><br><span style="font-size:.85rem; color:#5b6472;">Use these to sign in to your tenant dashboard, then change your password after your first login.</span></p>'
@@ -3691,9 +3764,11 @@ final class Platform
         );
     }
 
-    public function storeTenancyDocument($file, $unitTable, $propertyId, $unitId, $userId)
+    public function storeTenancyDocument($file, $unitTable, $propertyId, $unitId, $userId, $documentType = 'tenancy_agreement')
     {
         $unitTable = in_array($unitTable, $this->registrationTables(), true) ? $unitTable : '';
+        $documentType = (string) $documentType === 'key_collection_form' ? 'key_collection_form' : 'tenancy_agreement';
+        $label = $documentType === 'key_collection_form' ? 'The key collection form' : 'The tenancy agreement';
 
         if (! isset($file['error']) || (int) $file['error'] === UPLOAD_ERR_NO_FILE) {
             return array(false, '');
@@ -3702,15 +3777,15 @@ final class Platform
         $uploadError = (int) $file['error'];
 
         if ($uploadError === UPLOAD_ERR_INI_SIZE || $uploadError === UPLOAD_ERR_FORM_SIZE) {
-            return array(false, 'The tenancy agreement exceeds the 5 MB upload limit.');
+            return array(false, $label . ' exceeds the 5 MB upload limit.');
         }
 
         if ($uploadError !== UPLOAD_ERR_OK || ! isset($file['tmp_name']) || trim((string) $file['tmp_name']) === '') {
-            return array(false, 'The tenancy agreement could not be read from the upload.');
+            return array(false, $label . ' could not be read from the upload.');
         }
 
         if (isset($file['size']) && (int) $file['size'] > 5 * 1024 * 1024) {
-            return array(false, 'The tenancy agreement exceeds the 5 MB upload limit.');
+            return array(false, $label . ' exceeds the 5 MB upload limit.');
         }
 
         $originalName = trim((string) $file['name']);
@@ -3718,7 +3793,7 @@ final class Platform
         $allowed = array('pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png');
 
         if (! in_array($extension, $allowed, true)) {
-            return array(false, 'Upload the tenancy agreement as a PDF, Word document, or image.');
+            return array(false, 'Upload ' . strtolower($label) . ' as a PDF, Word document, or image.');
         }
 
         $directoryPath = $this->projectRoot
@@ -3728,17 +3803,18 @@ final class Platform
             . DIRECTORY_SEPARATOR . 'tenant-documents';
 
         if (! is_dir($directoryPath) && ! mkdir($directoryPath, 0777, true)) {
-            return array(false, 'The tenancy agreement folder could not be created.');
+            return array(false, $label . ' folder could not be created.');
         }
 
         $safeTable = preg_replace('/[^a-z0-9_]/i', '', (string) $unitTable);
         $userRow = $this->database->fetchOne('SELECT name FROM users WHERE id = :id LIMIT 1', array('id' => (int) $userId));
         $nameSlug = $userRow ? $this->slug((string) $userRow['name']) : 'tenant';
-        $filename = 'tenancy-' . $nameSlug . '-' . $safeTable . '-' . (int) $unitId . '-' . time() . '-' . mt_rand(1000, 9999) . '.' . $extension;
+        $slug = $documentType === 'key_collection_form' ? 'key-collection' : 'tenancy';
+        $filename = $slug . '-' . $nameSlug . '-' . $safeTable . '-' . (int) $unitId . '-' . time() . '-' . mt_rand(1000, 9999) . '.' . $extension;
         $targetPath = $directoryPath . DIRECTORY_SEPARATOR . $filename;
 
         if (! move_uploaded_file($file['tmp_name'], $targetPath)) {
-            return array(false, 'The tenancy agreement could not be stored.');
+            return array(false, $label . ' could not be stored.');
         }
 
         $this->database->insert('tenancy_documents', array(
@@ -3746,6 +3822,7 @@ final class Platform
             'unit_id' => (int) $unitId,
             'property_id' => (int) $propertyId,
             'user_id' => (int) $userId,
+            'document_type' => $documentType,
             'original_name' => basename($originalName),
             'file_path' => '/public/assets/uploads/tenant-documents/' . $filename,
             'file_size' => isset($file['size']) ? (int) $file['size'] : 0,
@@ -3756,7 +3833,7 @@ final class Platform
         return array(true, '/public/assets/uploads/tenant-documents/' . $filename);
     }
 
-    public function findTenancyDocumentsForRegistration($unitTable, $unitId)
+    public function findTenancyDocumentsForRegistration($unitTable, $unitId, $documentType = '')
     {
         $unitTable = in_array($unitTable, $this->registrationTables(), true) ? $unitTable : '';
         $unitId = (int) $unitId;
@@ -3765,16 +3842,22 @@ final class Platform
             return array();
         }
 
-        $rows = $this->database->fetchAll(
-            'SELECT * FROM tenancy_documents WHERE unit_table = :unit_table AND unit_id = :unit_id ORDER BY created_at DESC, id DESC',
-            array('unit_table' => $unitTable, 'unit_id' => $unitId)
-        );
+        $rows = $documentType !== ''
+            ? $this->database->fetchAll(
+                'SELECT * FROM tenancy_documents WHERE unit_table = :unit_table AND unit_id = :unit_id AND document_type = :document_type ORDER BY created_at DESC, id DESC',
+                array('unit_table' => $unitTable, 'unit_id' => $unitId, 'document_type' => (string) $documentType)
+            )
+            : $this->database->fetchAll(
+                'SELECT * FROM tenancy_documents WHERE unit_table = :unit_table AND unit_id = :unit_id ORDER BY created_at DESC, id DESC',
+                array('unit_table' => $unitTable, 'unit_id' => $unitId)
+            );
 
         $documents = array();
 
         foreach ($rows as $row) {
             $documents[] = array(
                 'id' => (int) $row['id'],
+                'documentType' => (string) $row['document_type'],
                 'originalName' => (string) $row['original_name'],
                 'filePath' => (string) $row['file_path'],
                 'fileSize' => (int) $row['file_size'],
@@ -3809,9 +3892,9 @@ final class Platform
         }
     }
 
-    public function deleteTenancyDocumentsForRegistration($unitTable, $unitId)
+    public function deleteTenancyDocumentsForRegistration($unitTable, $unitId, $documentType = '')
     {
-        foreach ($this->findTenancyDocumentsForRegistration($unitTable, $unitId) as $document) {
+        foreach ($this->findTenancyDocumentsForRegistration($unitTable, $unitId, $documentType) as $document) {
             $this->deleteTenancyDocumentRow($document);
         }
     }
@@ -3855,23 +3938,23 @@ final class Platform
         $notes = trim(isset($payload['notes']) ? $payload['notes'] : '');
 
         if ($tenure === '') {
-            return array(false, 'Enter the tenure or term for the renewal.');
+            return array(false, 'Enter the number of years for the renewal.');
         }
 
         if ($startDate === '') {
-            return array(false, 'Enter the start date for the new tenure.');
+            return array(false, 'Enter the start date for the new period.');
         }
 
         if ($endDate === '') {
-            return array(false, 'Enter the end date for the new tenure.');
+            return array(false, 'Enter the end date for the new period.');
         }
 
         if (strtotime($endDate) <= strtotime($startDate)) {
-            return array(false, 'The tenure end date must be after the start date.');
+            return array(false, 'The end date must be after the start date.');
         }
 
         if ($monthlyRent <= 0) {
-            return array(false, 'Enter a valid yearly rent for the new tenure.');
+            return array(false, 'Enter a valid yearly rent for the new period.');
         }
 
         if ($serviceCharge < 0) {
@@ -3954,14 +4037,14 @@ final class Platform
                         'channel' => 'cash',
                         'paid_at' => $startDate,
                         'reference' => $rentReference,
-                        'notes' => 'Recorded when the tenure was renewed.',
+                        'notes' => 'Recorded when the tenancy was renewed.',
                     ),
                     $adminUser
                 );
             }
         }
 
-        return array($renewed, $renewed ? null : 'The tenure could not be renewed.');
+        return array($renewed, $renewed ? null : 'The tenancy could not be renewed.');
     }
 
     public function addUnitPaymentByAdmin($unitTable, $unitId, array $payload, $adminUser)
@@ -4061,7 +4144,7 @@ final class Platform
         }
 
         if ($found === null) {
-            return array('ok' => false, 'error' => 'Choose which period of the tenure this rent payment is for.');
+            return array('ok' => false, 'error' => 'Choose which period this rent payment is for.');
         }
 
         // What this payment already cleared stays available while it is being edited, so saving it
@@ -4997,8 +5080,14 @@ final class Platform
         }
 
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
-        $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
-        $monthEndTs = strtotime('+' . ($yearIndex * 12 + 11) . ' months', strtotime(date('Y-m-01', $startTs)));
+        $tenureMonths = $this->registrationTenureMonths($registration);
+        $tenureYears = $tenureMonths > 0 ? max(1, (int) round($tenureMonths / 12)) : 0;
+        $elapsedYears = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+
+        // Every month of the signed term is listed so a payment can be split across all the months
+        // it covers, not just the months that have already elapsed.
+        $yearIndex = max($elapsedYears, $tenureYears - 1);
+        $monthEndTs = strtotime('+' . (($yearIndex + 1) * 12) . ' months', strtotime(date('Y-m-01', $startTs))) - 1;
 
         // A tenancy that has already run out is billed only up to the end of the tenure, otherwise
         // the month after the end date gets counted as well.
@@ -5006,10 +5095,12 @@ final class Platform
         $windowStartTs = strtotime(date('Y-m-01', $startTs));
 
         $monthList = $this->serviceChargeMonthsBetween($windowStartTs, $windowEndTs);
+        $priorTenureMonths = array();
 
         foreach ($this->priorServiceChargeTenures($registration) as $prior) {
             foreach ($this->serviceChargeMonthsBetween($prior['startTs'], $prior['endTs']) as $mom) {
                 $monthList[] = $mom;
+                $priorTenureMonths[(string) $mom['serviceMonth']] = true;
             }
         }
 
@@ -5020,7 +5111,11 @@ final class Platform
         $seen = array();
         $months = array();
         $paidByMonth = $this->serviceChargePaidByMonth((string) $registration['unitTable'], (int) $registration['unitId']);
-        $currentYearStart = date('Y-m', strtotime('+' . ($yearIndex * 12) . ' months', $windowStartTs));
+
+        // The arrears/current boundary follows the billing year in progress, not the final year of
+        // the term, so payments made now are not all treated as settling old arrears.
+        $currentYearStart = date('Y-m', strtotime('+' . ($elapsedYears * 12) . ' months', $windowStartTs));
+        $currentYearEnd = date('Y-m', min($endTs, strtotime('+' . (($elapsedYears + 1) * 12) . ' months', $windowStartTs) - 1));
         $totalRates = 0;
         $totalPaid = 0;
         $outstanding = 0;
@@ -5036,7 +5131,16 @@ final class Platform
 
             $seen[$serviceMonth] = true;
             $rate = $this->serviceChargeRateForMonth($propertyId, $serviceMonth);
-            $paid = isset($paidByMonth[$serviceMonth]) ? (int) $paidByMonth[$serviceMonth] : 0;
+            $hasAllocations = isset($paidByMonth[$serviceMonth]) && (int) $paidByMonth[$serviceMonth] > 0;
+
+            // A closed earlier tenancy was settled when it ended, so a month that carries no
+            // allocation is treated as paid. Only months with recorded payments stay outstanding.
+            if (isset($priorTenureMonths[$serviceMonth]) && ! $hasAllocations) {
+                $paid = $rate;
+            } else {
+                $paid = isset($paidByMonth[$serviceMonth]) ? (int) $paidByMonth[$serviceMonth] : 0;
+            }
+
             $remaining = max(0, $rate - $paid);
             $isArrears = strcmp($serviceMonth, $currentYearStart) < 0;
             $totalRates += $rate;
@@ -5066,7 +5170,7 @@ final class Platform
         return array(
             'months' => $months,
             'currentYearStart' => $currentYearStart,
-            'currentYearEnd' => date('Y-m', $windowEndTs),
+            'currentYearEnd' => $currentYearEnd,
             'totalRates' => $totalRates,
             'totalPaid' => $totalPaid,
             'arrears' => $arrears,
@@ -5161,8 +5265,10 @@ final class Platform
 
             $remaining = max(0, $rate - $paid);
             $monthStartTs = strtotime($serviceMonth . '-01');
-            $isPast = $monthStartTs < $todayStartTs;
-            $isArrears = $remaining > 0 && $isPast && ($currentYearStart === '' || strcmp($serviceMonth, $currentYearStart) < 0);
+
+            // A signed tenancy owes service charge for every month in its term, so any month left
+            // unpaid counts as arrears even when that month has not arrived yet.
+            $isArrears = $remaining > 0;
 
             $totalRates += $rate;
             $totalPaid += $paid;
@@ -5175,6 +5281,8 @@ final class Platform
             $months[] = array(
                 'serviceMonth' => $serviceMonth,
                 'startLabel' => date('M Y', $monthStartTs),
+                'startDate' => date('Y-m-01', $monthStartTs),
+                'endDate' => date('Y-m-t', $monthStartTs),
                 'rate' => $rate,
                 'allocations' => $allocations,
                 'paid' => $paid,
@@ -5235,6 +5343,7 @@ final class Platform
         }
 
         $years = array();
+        $todayStartTs = strtotime(date('Y-m-d'));
 
         foreach ($groups as $groupId => $group) {
             $rate = 0;
@@ -5249,11 +5358,17 @@ final class Platform
 
             $firstMonth = $group[0];
             $lastMonth = $group[count($group) - 1];
+            $yearEndTs = strtotime((string) $lastMonth['endDate']);
+            $yearIsPast = $yearEndTs !== false && $yearEndTs < $todayStartTs;
 
             $years[] = array(
                 'yearNumber' => $groupId + 1,
                 'startLabel' => isset($firstMonth['startLabel']) ? (string) $firstMonth['startLabel'] : '',
                 'endLabel' => isset($lastMonth['startLabel']) ? (string) $lastMonth['startLabel'] : '',
+                'yearStart' => isset($firstMonth['startDate']) ? (string) $firstMonth['startDate'] : '',
+                'yearEnd' => isset($lastMonth['endDate']) ? (string) $lastMonth['endDate'] : '',
+                'isArrears' => $remaining > 0 && $yearIsPast,
+                'isCurrentYear' => ! $yearIsPast,
                 'months' => $group,
                 'rate' => $rate,
                 'paid' => $paid,
@@ -5294,11 +5409,18 @@ final class Platform
         $tenures = array();
 
         $monthsElapsed = $this->elapsedTenureMonths($startValue);
-        $yearIndex = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+        $tenureMonths = $this->registrationTenureMonths($registration);
+        $tenureYears = $tenureMonths > 0 ? max(1, (int) round($tenureMonths / 12)) : 0;
+        $elapsedYears = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
+
+        // The signed tenancy is billed for its whole length, so the window covers every year the
+        // tenant committed to rather than stopping at the months that have elapsed. Months that
+        // have not arrived yet are still owed.
+        $yearIndex = max($elapsedYears, $tenureYears - 1);
         $windowStartTs = strtotime(date('Y-m-01', $startTs));
 
         // Keep a closed tenancy inside its own dates, otherwise the month after the end date is billed.
-        $windowEndTs = min($endTs, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $windowStartTs));
+        $windowEndTs = min($endTs, strtotime('+' . (($yearIndex + 1) * 12) . ' months', $windowStartTs) - 1);
         $currentYearStart = date('Y-m', strtotime('+' . ($yearIndex * 12) . ' months', $windowStartTs));
 
         $ongoing = $this->serviceChargeMonthsBlock(
@@ -5567,7 +5689,7 @@ final class Platform
         $elapsedYears = $monthsElapsed > 0 ? (int) floor(($monthsElapsed - 1) / 12) : 0;
         $yearIndex = max($elapsedYears, $tenureYears - 1);
         $currentYearStartTs = strtotime(date('Y-m-01', $startTs));
-        $windowEndTs = min($endTs + 1, strtotime('+' . ($yearIndex * 12 + 11) . ' months', $currentYearStartTs));
+        $windowEndTs = min($endTs + 1, strtotime('+' . (($yearIndex + 1) * 12) . ' months', $currentYearStartTs));
 
         $years = array();
         $totalRates = 0;
@@ -5575,6 +5697,10 @@ final class Platform
         $totalRemaining = 0;
         $totalArrears = 0;
         $todayStartTs = strtotime(date('Y-m-d'));
+
+        // Every rent year is billed at a rate fixed by the property, so the geometry of the years is
+        // settled first. Payments are then spread across those years in a second pass.
+        $yearMeta = array();
 
         for ($i = 0; $i <= $yearIndex; $i++) {
             $yearStartTs = strtotime('+' . ($i * 12) . ' months', $currentYearStartTs);
@@ -5584,7 +5710,6 @@ final class Platform
                 break;
             }
 
-            $monthEntries = $this->serviceChargeMonthsBetween($yearStartTs, $yearEndTs);
             $monthCount = 0;
             $monthCursor = strtotime(date('Y-m-01', $yearStartTs));
 
@@ -5593,59 +5718,131 @@ final class Platform
                 $monthCursor = @strtotime('+1 month', $monthCursor);
             }
 
-            $monthCount = $monthCount > 0 ? $monthCount : count($monthEntries);
-            $rate = $annualRent > 0
-                ? (int) round($annualRent * max(0, $monthCount) / 12)
-                : $monthlyRent * max(0, $monthCount);
+            $monthCount = $monthCount > 0
+                ? $monthCount
+                : count($this->serviceChargeMonthsBetween($yearStartTs, $yearEndTs));
 
-            $yearPayments = array();
-            $paid = 0;
-            $periodKey = 'y' . ($i + 1);
+            $yearMeta[] = array(
+                'index' => $i,
+                'startTs' => $yearStartTs,
+                'endTs' => $yearEndTs,
+                'monthCount' => $monthCount,
+                'rate' => $annualRent > 0
+                    ? (int) round($annualRent * max(0, $monthCount) / 12)
+                    : $monthlyRent * max(0, $monthCount),
+                'periodKey' => 'y' . ($i + 1),
+            );
+        }
 
-            foreach ($paymentRows as $row) {
-                $paymentId = (int) $row['id'];
+        if ($yearMeta === array()) {
+            return $empty;
+        }
 
-                if (isset($periodAllocations[$paymentId])) {
-                    $allocatedToThisYear = 0;
+        $allocationByYear = array();
 
-                    foreach ($periodAllocations[$paymentId] as $allocation) {
-                        if ((string) $allocation['periodKey'] === $periodKey) {
-                            $allocatedToThisYear += (int) $allocation['amountPaid'];
-                        }
+        foreach ($yearMeta as $entry) {
+            $allocationByYear[$entry['index']] = array();
+        }
+
+        foreach ($paymentRows as $row) {
+            $paymentId = (int) $row['id'];
+
+            // A payment filed against a named rent year is honoured as recorded, so a payment made
+            // today against a closed year still clears that year's arrears.
+            if (isset($periodAllocations[$paymentId])) {
+                foreach ($periodAllocations[$paymentId] as $allocation) {
+                    $amountPaid = (int) $allocation['amountPaid'];
+
+                    if ($amountPaid <= 0) {
+                        continue;
                     }
 
-                    if ($allocatedToThisYear > 0) {
-                        $yearPayments[] = array(
+                    foreach ($yearMeta as $entry) {
+                        if ($entry['periodKey'] !== (string) $allocation['periodKey']) {
+                            continue;
+                        }
+
+                        $allocationByYear[$entry['index']][] = array(
                             'id' => $paymentId,
-                            'amount' => $allocatedToThisYear,
+                            'amount' => $amountPaid,
                             'channel' => (string) $row['channel'],
                             'reference' => (string) $row['reference'],
                             'description' => (string) $row['description'],
                             'date' => date('d M Y', @strtotime((string) $row['created_at'])),
                         );
-                        $paid += $allocatedToThisYear;
-                    }
 
-                    continue;
+                        break;
+                    }
                 }
 
-                $ts = @strtotime((string) $row['created_at']);
+                continue;
+            }
 
-                if ($ts !== false && $ts > 0 && $ts >= $yearStartTs && $ts <= $yearEndTs) {
-                    $yearPayments[] = array(
-                        'id' => $paymentId,
-                        'amount' => (int) $row['amount'],
-                        'channel' => (string) $row['channel'],
-                        'reference' => (string) $row['reference'],
-                        'description' => (string) $row['description'],
-                        'date' => date('d M Y', $ts),
-                    );
-                    $paid += (int) $row['amount'];
+            $ts = @strtotime((string) $row['created_at']);
+
+            if ($ts === false || $ts <= 0 || $ts > $windowEndTs) {
+                continue;
+            }
+
+            $firstYearIndex = null;
+
+            foreach ($yearMeta as $entry) {
+                if ($ts >= $entry['startTs'] && $ts <= $entry['endTs']) {
+                    $firstYearIndex = $entry['index'];
+                    break;
                 }
             }
 
+            if ($firstYearIndex === null) {
+                continue;
+            }
+
+            // A payment covers the year it falls in and then carries into the following years until
+            // it is used up. Filing the whole amount against a single year would show that year as
+            // overpaid and leave the later years looking unpaid even though the rent is settled.
+            $left = (int) $row['amount'];
+
+            foreach ($yearMeta as $entry) {
+                if ($entry['index'] < $firstYearIndex || $left <= 0) {
+                    continue;
+                }
+
+                $yearPaid = 0;
+
+                foreach ($allocationByYear[$entry['index']] as $existing) {
+                    $yearPaid += (int) $existing['amount'];
+                }
+
+                $applied = min($left, max(0, $entry['rate'] - $yearPaid));
+
+                if ($applied <= 0) {
+                    continue;
+                }
+
+                $allocationByYear[$entry['index']][] = array(
+                    'id' => $paymentId,
+                    'amount' => $applied,
+                    'channel' => (string) $row['channel'],
+                    'reference' => (string) $row['reference'],
+                    'description' => (string) $row['description'],
+                    'date' => date('d M Y', $ts),
+                );
+
+                $left -= $applied;
+            }
+        }
+
+        foreach ($yearMeta as $entry) {
+            $yearPayments = $allocationByYear[$entry['index']];
+            $paid = 0;
+
+            foreach ($yearPayments as $allocation) {
+                $paid += (int) $allocation['amount'];
+            }
+
+            $rate = (int) $entry['rate'];
             $remaining = max(0, $rate - $paid);
-            $yearIsPast = $yearEndTs < $todayStartTs;
+            $yearIsPast = $entry['endTs'] < $todayStartTs;
             $isArrears = $remaining > 0 && $yearIsPast;
 
             if ($isArrears) {
@@ -5657,10 +5854,10 @@ final class Platform
             $totalRemaining += $remaining;
 
             $years[] = array(
-                'yearNumber' => $i + 1,
-                'yearStart' => date('Y-m-d', $yearStartTs),
-                'yearEnd' => date('Y-m-d', $yearEndTs),
-                'monthCount' => $monthCount,
+                'yearNumber' => $entry['index'] + 1,
+                'yearStart' => date('Y-m-d', $entry['startTs']),
+                'yearEnd' => date('Y-m-d', $entry['endTs']),
+                'monthCount' => $entry['monthCount'],
                 'annualRent' => $rate,
                 'paid' => $paid,
                 'remaining' => $remaining,
@@ -5763,8 +5960,8 @@ final class Platform
             $carriedOver = (int) $breakdown['carriedOver'];
             $periods[] = array(
                 'key' => 'prior',
-                'label' => 'Arrears carried from an earlier tenure',
-                'shortLabel' => 'Earlier tenure',
+                'label' => 'Arrears carried from an earlier period',
+                'shortLabel' => 'Earlier period',
                 'startDate' => '',
                 'endDate' => '',
                 'billed' => $carriedOver,
@@ -5865,7 +6062,7 @@ final class Platform
                 }
                 $groups[$periodKey] = array(
                     'key' => $periodKey,
-                    'label' => $periodKey === 'prior' ? 'Earlier tenure' : 'Year ' . ($periodIndex + 1),
+                    'label' => $periodKey === 'prior' ? 'Earlier period' : 'Year ' . ($periodIndex + 1),
                     'shortLabel' => $periodKey === 'prior' ? 'Arrears' : 'Year ' . ($periodIndex + 1),
                     'startDate' => date('Y-m-d', $windowStart),
                     'endDate' => date('Y-m-t', $windowEnd),
@@ -6256,14 +6453,17 @@ if ($startTs === false || $startTs <= 0) {
         }
 
         $tenureValue = isset($registration['tenure']) ? trim((string) $registration['tenure']) : '';
+        $startDate = isset($registration['startDate']) ? trim((string) $registration['startDate']) : '';
+        $endDate = isset($registration['endDate']) ? trim((string) $registration['endDate']) : '';
 
         return array(
             'isOngoing' => true,
-            'label' => 'Ongoing tenure',
+            'label' => 'Current tenancy',
             'tenure' => $tenureValue,
             'tenureLabel' => $this->tenureDisplayLabel($tenureValue),
-            'startDate' => isset($registration['startDate']) ? trim((string) $registration['startDate']) : '',
-            'endDate' => isset($registration['endDate']) ? trim((string) $registration['endDate']) : '',
+            'periodLabel' => $this->tenurePeriodLabel($startDate, $endDate),
+            'startDate' => $startDate,
+            'endDate' => $endDate,
             'status' => 'active',
             'years' => $yearsData['years'],
             'totalRates' => $yearsData['totalRates'],
@@ -6281,9 +6481,10 @@ if ($startTs === false || $startTs <= 0) {
 
         return array(
             'isOngoing' => false,
-            'label' => $tenureValue !== '' ? $this->tenureDisplayLabel($tenureValue) : 'Tenure',
+            'label' => 'Previous tenancy',
             'tenure' => $tenureValue,
             'tenureLabel' => $this->tenureDisplayLabel($tenureValue),
+            'periodLabel' => $this->tenurePeriodLabel($bd['startDate'], $bd['endDate']),
             'startDate' => $bd['startDate'],
             'endDate' => $bd['endDate'],
             'status' => $bd['status'] !== '' ? $bd['status'] : 'ended',
@@ -6356,6 +6557,45 @@ if ($startTs === false || $startTs <= 0) {
         }
 
         return $years;
+    }
+
+    public function tenurePeriodLabel($startDate, $endDate)
+    {
+        $startValue = trim((string) $startDate);
+        $endValue = trim((string) $endDate);
+
+        if ($startValue === '' && $endValue === '') {
+            return '';
+        }
+
+        // The tenancy period is the real length of the term, so show the dates rather
+        // than a running "Tenure 1, Tenure 2" count that leaves gaps between renewals.
+        $range = $startValue !== '' && $endValue !== ''
+            ? $startValue . ' → ' . $endValue
+            : ($startValue !== '' ? 'From ' . $startValue : 'Until ' . $endValue);
+
+        $months = 0;
+
+        if ($startValue !== '' && $endValue !== '') {
+            $startTs = @strtotime($startValue);
+            $endTs = @strtotime($endValue);
+
+            if ($startTs !== false && $endTs !== false && $endTs > $startTs) {
+                $months = (int) round(($endTs - $startTs) / 2629800);
+            }
+        }
+
+        if ($months > 0 && $months % 12 === 0) {
+            $years = (int) ($months / 12);
+
+            return $range . ' (' . $years . ' year' . ($years === 1 ? '' : 's') . ')';
+        }
+
+        if ($months > 0) {
+            return $range . ' (' . $months . ' months)';
+        }
+
+        return $range;
     }
 
     private function tenureDisplayLabel($tenureValue)

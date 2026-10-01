@@ -1246,7 +1246,7 @@ $router->post('admin-tenant-renew', function () use ($platform) {
         app_redirect('admin-tenants', array('view_tenant' => $unitId, 'unit_table' => $unitTable, 'renew' => 1));
     }
 
-    App\Core\Flash::add('success', 'Tenure for ' . $tenant['user']['name'] . ' was renewed. Any outstanding balance was carried into the new tenure.');
+    App\Core\Flash::add('success', 'The tenancy for ' . $tenant['user']['name'] . ' was renewed. Any outstanding balance was carried into the new period.');
     app_redirect('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
 });
 
@@ -1426,7 +1426,7 @@ $router->post('admin-tenant-period-payment', function () use ($platform) {
     $periodLabel = $periodKey;
 
     if ($periodKey === 'prior') {
-        $periodLabel = 'the earlier tenure';
+        $periodLabel = 'the earlier period';
     } elseif (preg_match('/^y\d+$/', $periodKey)) {
         $periodLabel = 'year ' . (int) substr($periodKey, 1);
     } elseif (preg_match('/^(\d{4})-(\d{2})$/', $periodKey, $matches)) {

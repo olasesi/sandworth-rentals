@@ -441,6 +441,24 @@ CREATE TABLE IF NOT EXISTS rent_period_allocations (
     KEY rent_alloc_period_idx (unit_table, unit_id, period_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS tenancy_documents (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    unit_table VARCHAR(60) NOT NULL DEFAULT '',
+    unit_id INT UNSIGNED NOT NULL,
+    property_id INT UNSIGNED NOT NULL DEFAULT 0,
+    user_id INT UNSIGNED NOT NULL DEFAULT 0,
+    document_type VARCHAR(40) NOT NULL DEFAULT 'tenancy_agreement',
+    original_name VARCHAR(190) NOT NULL DEFAULT '',
+    file_path VARCHAR(255) NOT NULL DEFAULT '',
+    file_size INT UNSIGNED NOT NULL DEFAULT 0,
+    mime_type VARCHAR(120) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY td_unit_idx (unit_table, unit_id),
+    KEY td_property_idx (property_id),
+    KEY td_user_idx (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS key_collections (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     property_id INT UNSIGNED NOT NULL DEFAULT 0,

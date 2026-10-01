@@ -73,14 +73,14 @@ $totalOwed = $isRent ? $rentOwed : ($isServiceCharge ? $scOwed : 0);
 if ($isRent) {
     $pageEyebrow = 'Record rent payment';
     $pageHeading = 'Post a rent payment for ' . (string) $tenant['user']['name'];
-    $pageIntro = 'This is posted as rent, so it can only settle rent. Pick the year of the tenure it is for; a payment for a year that has already closed clears that year and not the current one.';
-    $targetHeading = 'Rent owed on this tenure';
+    $pageIntro = 'This is posted as rent, so it can only settle rent. Pick the year of the term it is for; a payment for a year that has already closed clears that year and not the current one.';
+    $targetHeading = 'Rent owed on this term';
     $targetLines = array(
-        array('label' => 'Rent payable on this tenure', 'amount' => $rentTenureOwed),
-        array('label' => 'Arrears carried from an earlier tenure', 'amount' => $rentPriorArrears),
+        array('label' => 'Rent payable on this term', 'amount' => $rentTenureOwed),
+        array('label' => 'Arrears carried from an earlier period', 'amount' => $rentPriorArrears),
         array('label' => 'Rent owed in total', 'amount' => $rentOwed),
     );
-    $periodUnit = 'year of the tenure';
+    $periodUnit = 'year of the term';
 } elseif ($isServiceCharge) {
     $pageEyebrow = 'Record service charge payment';
     $pageHeading = 'Post a service charge payment for ' . (string) $tenant['user']['name'];
@@ -186,7 +186,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             <?php if ($periods !== array()): ?>
                 <div class="admin-form-grid">
                     <div class="admin-field">
-                        <label for="payment-period">Rent paid for this <?= htmlspecialchars($isRent ? 'year of the tenure' : 'billing year', ENT_QUOTES, 'UTF-8') ?></label>
+                        <label for="payment-period">Rent paid for this <?= htmlspecialchars($isRent ? 'year of the term' : 'billing year', ENT_QUOTES, 'UTF-8') ?></label>
                         <select id="payment-period" name="period_key">
                             <?php foreach ($periods as $period): ?>
                                 <option value="<?= htmlspecialchars((string) $period['key'], ENT_QUOTES, 'UTF-8') ?>"<?= (string) $period['key'] === $formPeriod ? ' selected' : '' ?><?= ! empty($period['isSettled']) ? ' disabled' : '' ?>>
@@ -207,7 +207,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <div class="admin-editor-state" style="margin-bottom:18px">
                     <strong>Nothing to pay against</strong>
                     <p class="muted-text" style="margin:6px 0 0"><?= $isRent
-                        ? 'The rent for every year of this tenure has been paid in full, so there is no rent outstanding to record a payment against.'
+                        ? 'The rent for every year of this term has been paid in full, so there is no rent outstanding to record a payment against.'
                         : 'Every billed month of service charge on this tenancy has been paid, so there is no service charge outstanding to record a payment against.' ?></p>
                 </div>
             <?php endif; ?>

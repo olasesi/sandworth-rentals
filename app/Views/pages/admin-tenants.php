@@ -113,9 +113,9 @@ $formHeading = $isViewMode
 $formButton = $isEdit ? 'Save changes' : 'Register tenant';
 $adminTitle = $isViewMode ? 'Tenant details.' : ($isSummary ? 'Tenant registration complete.' : ($isEdit ? 'Edit tenant registration details.' : 'Registered tenants'));
 $adminDescription = $isViewMode
-    ? 'Tenant account, unit, tenure, rent and payments.'
+    ? 'Tenant account, unit, tenancy period, rent and payments.'
     : ($isEdit
-        ? 'Update the tenant account, the exact unit they rent, tenure dates, rent, service charge, and amounts paid.'
+        ? 'Update the tenant account, the exact unit they rent, tenancy dates, rent, service charge, and amounts paid.'
         : 'Browse tenants by property, search the register, and add new tenant registrations.');
 
 $formValue = function ($field, $default = '') use ($hasOldInput, $oldInput, $activeTenant, $tenantKeyMap) {
@@ -200,12 +200,11 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             <div class="section-heading" style="margin-bottom:18px">
                 <div>
                     <span class="eyebrow"><?= htmlspecialchars($formTitle, ENT_QUOTES, 'UTF-8') ?></span>
-                    <h2><?= htmlspecialchars($formHeading, ENT_QUOTES, 'UTF-8') ?></h2>
+                    <h2><?php if ($isViewMode): ?><?= htmlspecialchars((string) $timelineTenant['user']['name'], ENT_QUOTES, 'UTF-8') ?><?php else: ?><?= htmlspecialchars($formHeading, ENT_QUOTES, 'UTF-8') ?><?php endif; ?></h2>
                 </div>
                 <div class="admin-page-actions">
                     <a class="solid-button" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $timelineTenant['unitTable'], 'unit_id' => $timelineTenant['unitId'], 'type' => 'rent')), ENT_QUOTES, 'UTF-8') ?>">Record rent payment</a>
                     <a class="solid-button solid-button-navy" href="<?= htmlspecialchars(app_url('admin-tenant-payment-new', array('unit_table' => $timelineTenant['unitTable'], 'unit_id' => $timelineTenant['unitId'], 'type' => 'service_charge')), ENT_QUOTES, 'UTF-8') ?>">Record SC payment</a>
-                    <a class="solid-button solid-button-slate" href="<?= htmlspecialchars(app_url('admin-tenant-key-collection', array('unit_table' => $timelineTenant['unitTable'], 'unit_id' => $timelineTenant['unitId'])), ENT_QUOTES, 'UTF-8') ?>">Key collection</a>
                 </div>
             </div>
             <div class="admin-editor-state admin-tenant-summary">
@@ -213,7 +212,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <div class="admin-tenant-summary-grid">
                     <div>
                         <span>Tenant</span>
-                        <strong class="admin-tenant-name"><?= htmlspecialchars((string) $timelineTenant['user']['name'], ENT_QUOTES, 'UTF-8') ?></strong>
+                        <strong><?= htmlspecialchars((string) $timelineTenant['user']['name'], ENT_QUOTES, 'UTF-8') ?></strong>
                         <span class="muted-text"><?= htmlspecialchars((string) $timelineTenant['user']['email'] . ' | ' . $timelineTenant['user']['phone'], ENT_QUOTES, 'UTF-8') ?></span>
                     </div>
                     <div>
@@ -236,9 +235,9 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <span class="muted-text"><?= htmlspecialchars((string) $detailUnitLabel . ($detailUnitSub !== '' ? ' — ' . $detailUnitSub : ''), ENT_QUOTES, 'UTF-8') ?></span>
                     </div>
                     <div>
-                        <span>Tenure / term</span>
-                        <strong><?= htmlspecialchars((string) $timelineTenant['tenure'], ENT_QUOTES, 'UTF-8') ?></strong>
-                        <span class="muted-text"><?= htmlspecialchars(trim((string) $timelineTenant['startDate'] . ($timelineTenant['endDate'] !== '' ? ' → ' . $timelineTenant['endDate'] : '')), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span>Tenancy period</span>
+                        <strong><?= htmlspecialchars(trim((string) $timelineTenant['startDate'] . ($timelineTenant['endDate'] !== '' ? ' → ' . $timelineTenant['endDate'] : '')), ENT_QUOTES, 'UTF-8') ?></strong>
+                        <span class="muted-text"><?= (int) $timelineTenant['tenure'] ?> year<?= (int) $timelineTenant['tenure'] === 1 ? '' : 's' ?> in total</span>
                     </div>
                     <div>
                         <span>Yearly rent</span>
@@ -253,14 +252,14 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         $detailTenureOwed = (int) $timelineBalances['tenureOwed'];
                         $detailTenureYears = (int) $timelineBalances['tenureYears'];
                         ?>
-                        <span class="muted-text">Rent for the <?= (int) $detailTenureYears ?> year tenure &middot; <?= htmlspecialchars(app_currency($detailTenureTotal), ENT_QUOTES, 'UTF-8') ?> &middot; paid <?= htmlspecialchars(app_currency($detailTenurePaid), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span class="muted-text">Rent for <?= (int) $detailTenureYears ?> year<?= (int) $detailTenureYears === 1 ? '' : 's' ?> &middot; <?= htmlspecialchars(app_currency($detailTenureTotal), ENT_QUOTES, 'UTF-8') ?> &middot; paid <?= htmlspecialchars(app_currency($detailTenurePaid), ENT_QUOTES, 'UTF-8') ?></span>
                         <span class="<?= $detailTenureOwed > 0 ? 'admin-amount-due' : 'admin-amount-ok' ?>">Rent payable <?= htmlspecialchars(app_currency($detailTenureOwed), ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($timelinePriorArrears > 0): ?>
-                            <span class="admin-amount-note">incl. <?= htmlspecialchars(app_currency($timelinePriorArrears), ENT_QUOTES, 'UTF-8') ?> arrears from an earlier tenure</span>
+                            <span class="admin-amount-note">incl. <?= htmlspecialchars(app_currency($timelinePriorArrears), ENT_QUOTES, 'UTF-8') ?> arrears from an earlier period</span>
                         <?php endif; ?>
                     </div>
                     <div>
-                        <span>Owed (tenure)</span>
+                        <span>Owed (current period)</span>
                         <strong class="<?= $timelineTenureOwed > 0 ? 'admin-amount-due' : 'admin-amount-ok' ?>"><?= htmlspecialchars(app_currency($timelineTenureOwed), ENT_QUOTES, 'UTF-8') ?></strong>
                         <span class="muted-text">Total owed <?= htmlspecialchars(app_currency($timelineTotalOwed), ENT_QUOTES, 'UTF-8') ?><?= $timelinePriorArrears > 0 ? ' (incl. ' . htmlspecialchars(app_currency($timelinePriorArrears), ENT_QUOTES, 'UTF-8') . ' arrears)' : '' ?></span>
                     </div>
@@ -351,16 +350,16 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             Renew the rent for
                             <strong><?= htmlspecialchars((string) $timelineTenant['user']['name'], ENT_QUOTES, 'UTF-8') ?></strong>
                             on <?= htmlspecialchars($detailUnitLabel, ENT_QUOTES, 'UTF-8') ?><?= $detailUnitSub !== '' ? ' (' . htmlspecialchars($detailUnitSub, ENT_QUOTES, 'UTF-8') . ')' : '' ?>?
-                            This closes the current tenure (<strong><?= htmlspecialchars((string) $timelineTenant['tenure'], ENT_QUOTES, 'UTF-8') ?></strong>) and opens a new one on the same unit. The outstanding balance of
+                            This closes the current period (<strong><?= htmlspecialchars(trim((string) $timelineTenant['startDate'] . ($timelineTenant['endDate'] !== '' ? ' → ' . $timelineTenant['endDate'] : '')), ENT_QUOTES, 'UTF-8') ?></strong>) and opens a new one on the same unit. The outstanding balance of
                             <strong class="<?= $renewCarryOver > 0 ? 'admin-amount-danger' : 'admin-amount-ok' ?>"><?= htmlspecialchars(app_currency($renewCarryOver), ENT_QUOTES, 'UTF-8') ?></strong>
-                            will be carried into the new tenure.
+                            will be carried into the new period.
                         </p>
                         <form action="<?= htmlspecialchars(app_url('admin-tenant-renew'), ENT_QUOTES, 'UTF-8') ?>" method="post" class="admin-form">
                             <input type="hidden" name="unit_table" value="<?= htmlspecialchars((string) $timelineTenant['unitTable'], ENT_QUOTES, 'UTF-8') ?>">
                             <input type="hidden" name="unit_id" value="<?= (int) $timelineTenant['unitId'] ?>">
                             <div class="admin-form-grid">
                                 <div class="admin-field">
-                                    <label for="renew-tenure">New tenure / term (years)</label>
+                                    <label for="renew-tenure">New term (years)</label>
                                     <input id="renew-tenure" name="tenure" type="number" min="1" max="10" step="1" placeholder="e.g. 1, 2, 5" required value="<?= $renewTenureYears > 0 ? (int) $renewTenureYears : '' ?>">
                                 </div>
                             <div class="admin-field">
@@ -393,7 +392,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <p class="muted-text" style="margin:0 0 14px">
                                 The legal fee, VAT, subscription form, and toilet charges are paid once when the
                                 tenancy is first registered, so they are not charged again on this renewal and
-                                carry over from the current tenure.
+                                carry over from the current period.
                             </p>
 
                             <div class="admin-field">
@@ -407,19 +406,37 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     </form>
                     </div>
                 </div>
-                <?php if (! empty($timelineTenant['documents'])): ?>
+                <?php
+                $agreementDocuments = array();
+                $keyCollectionDocuments = array();
+
+                foreach ((array) $timelineTenant['documents'] as $document) {
+                    if ((string) $document['documentType'] === 'key_collection_form') {
+                        $keyCollectionDocuments[] = $document;
+                    } else {
+                        $agreementDocuments[] = $document;
+                    }
+                }
+
+                $documentGroups = array(
+                    'Tenancy agreement' => $agreementDocuments,
+                    'Key collection form' => $keyCollectionDocuments,
+                );
+                ?>
+                <?php foreach ($documentGroups as $groupLabel => $groupDocuments): ?>
+                    <?php if ($groupDocuments === array()) { continue; } ?>
                     <div class="tenant-documents">
-                        <span class="eyebrow">Tenancy agreement</span>
+                        <span class="eyebrow"><?= htmlspecialchars($groupLabel, ENT_QUOTES, 'UTF-8') ?></span>
                         <ul>
-                            <?php foreach ($timelineTenant['documents'] as $document): ?>
+                            <?php foreach ($groupDocuments as $document): ?>
                                 <li>
-                                    <a href="<?= htmlspecialchars((string) $document['filePath'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener"><?= htmlspecialchars($document['originalName'] !== '' ? $document['originalName'] : 'Tenancy agreement', ENT_QUOTES, 'UTF-8') ?></a>
+                                    <a href="<?= htmlspecialchars((string) $document['filePath'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener"><?= htmlspecialchars($document['originalName'] !== '' ? $document['originalName'] : $groupLabel, ENT_QUOTES, 'UTF-8') ?></a>
                                     <span class="muted-text"><?= htmlspecialchars(number_format($document['fileSize'] / 1024, 0) . ' KB', ENT_QUOTES, 'UTF-8') ?></span>
                                 </li>
                             <?php endforeach; ?>
                         </ul>
                     </div>
-                <?php endif; ?>
+                <?php endforeach; ?>
                 <?php endif; ?>
         </section>
 
@@ -502,26 +519,26 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <div class="admin-field">
                         <label for="tenant-rent-payable">Yearly rent for this property</label>
                         <input id="tenant-rent-payable" type="text" readonly tabindex="-1" style="background:#f4f6f8; color:#334155; font-weight:600" value="<?= $rentPayableYearly > 0 ? htmlspecialchars(app_currency($rentPayableYearly), ENT_QUOTES, 'UTF-8') : 'Select a property' ?>">
-                        <span class="muted-text" style="display:block; margin-top:6px">Taken from the property record. The tenant owes this for every year of the tenure set above.</span>
+                        <span class="muted-text" style="display:block; margin-top:6px">Taken from the property record. The tenant owes this for every year of the term set above.</span>
                         <input id="tenant-yearly-rent" type="hidden" name="monthly_rent" value="<?= (int) $rentValueYearly ?>">
                     </div>
                     <div class="admin-field">
                         <?php if ($isEdit): ?>
-                            <label for="tenant-rent-paid">Rent paid on this tenure</label>
+                            <label for="tenant-rent-paid">Rent paid on this term</label>
                             <input id="tenant-rent-paid" type="text" readonly tabindex="-1" style="background:#f4f6f8; color:#334155; font-weight:600" value="<?= htmlspecialchars(app_currency($editRentPaid), ENT_QUOTES, 'UTF-8') ?>">
-                            <span class="muted-text" style="display:block; margin-top:6px">Already on this tenant&rsquo;s ledger. <?= htmlspecialchars(app_currency($editRentPayable), ENT_QUOTES, 'UTF-8') ?> of the rent for the tenure is still payable. Use <strong>Record rent payment</strong> on the tenant page to add more.</span>
+                            <span class="muted-text" style="display:block; margin-top:6px">Already on this tenant&rsquo;s ledger. <?= htmlspecialchars(app_currency($editRentPayable), ENT_QUOTES, 'UTF-8') ?> of the rent for the term is still payable. Use <strong>Record rent payment</strong> on the tenant page to add more.</span>
                         <?php else: ?>
                             <label for="tenant-rent-paid">Rent paid at registration</label>
                             <input id="tenant-rent-paid" name="rent_paid_at_registration" type="number" min="0" step="1" placeholder="e.g. 5000000" value="<?= htmlspecialchars($rentPaidValue, ENT_QUOTES, 'UTF-8') ?>">
-                            <span class="muted-text" id="tenant-rent-hint" style="display:block; margin-top:6px">What the tenant has already paid on the rent for the tenure. Anything left stays as rent payable.</span>
+                            <span class="muted-text" id="tenant-rent-hint" style="display:block; margin-top:6px">What the tenant has already paid on the rent for the term. Anything left stays as rent payable.</span>
                         <?php endif; ?>
                     </div>
                     <div class="admin-field">
-                        <label for="tenant-start-date">Tenure start</label>
+                        <label for="tenant-start-date">Tenancy start</label>
                         <input id="tenant-start-date" name="start_date" type="date" required value="<?= htmlspecialchars((string) $formValue('start_date'), ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="admin-field">
-                        <label for="tenant-end-date">Tenure end</label>
+                        <label for="tenant-end-date">Tenancy end</label>
                         <input id="tenant-end-date" name="end_date" type="date" required value="<?= htmlspecialchars((string) $formValue('end_date'), ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="admin-field">
@@ -609,7 +626,23 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <?php if ($isEdit && $editTenant && ! empty($editTenant['documents'])): ?>
                             <div class="tenant-documents" style="margin-top:10px">
                                 <?php foreach ($editTenant['documents'] as $document): ?>
+                                    <?php if ((string) $document['documentType'] !== 'tenancy_agreement') { continue; } ?>
                                     <a href="<?= htmlspecialchars((string) $document['filePath'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener"><?= htmlspecialchars($document['originalName'] !== '' ? $document['originalName'] : 'Tenancy agreement', ENT_QUOTES, 'UTF-8') ?></a>
+                                    <span class="muted-text"><?= htmlspecialchars(number_format($document['fileSize'] / 1024, 0) . ' KB', ENT_QUOTES, 'UTF-8') ?></span><br>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="admin-field admin-span-3">
+                        <label for="tenant-key-collection-form">Key collection form</label>
+                        <input id="tenant-key-collection-form" name="key_collection_form" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+                        <p class="muted-text" style="font-size:.8rem; margin-top:.3rem">Optional: upload the signed key collection form as proof the tenant received the apartment key (PDF, Word, or image). It is stored with this registration.</p>
+                        <?php if ($isEdit && $editTenant && ! empty($editTenant['documents'])): ?>
+                            <div class="tenant-documents" style="margin-top:10px">
+                                <?php foreach ($editTenant['documents'] as $document): ?>
+                                    <?php if ((string) $document['documentType'] !== 'key_collection_form') { continue; } ?>
+                                    <a href="<?= htmlspecialchars((string) $document['filePath'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener"><?= htmlspecialchars($document['originalName'] !== '' ? $document['originalName'] : 'Key collection form', ENT_QUOTES, 'UTF-8') ?></a>
                                     <span class="muted-text"><?= htmlspecialchars(number_format($document['fileSize'] / 1024, 0) . ' KB', ENT_QUOTES, 'UTF-8') ?></span><br>
                                 <?php endforeach; ?>
                             </div>
@@ -635,7 +668,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <div class="section-heading" style="margin-bottom:12px">
                         <div>
                             <span class="eyebrow">Rent</span>
-                            <h3>Rent breakdown by tenure</h3>
+                            <h3>Rent breakdown by tenancy period</h3>
                         </div>
                     </div>
 
@@ -659,7 +692,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <strong><?= htmlspecialchars(app_currency($tenureAllTotalPaid), ENT_QUOTES, 'UTF-8') ?></strong>
                         </article>
                         <article class="<?= $tenureAllTotalRemaining > 0 ? 'stat-highlight-danger' : '' ?>">
-                            <span>Arrears of all tenures</span>
+                            <span>Arrears across all periods</span>
                             <strong<?= $tenureAllTotalRemaining > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($tenureAllTotalRemaining), ENT_QUOTES, 'UTF-8') ?></strong>
                         </article>
                     </div>
@@ -667,14 +700,12 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <?php foreach ($tenureBlocks['tenures'] as $tbIndex => $tb): ?>
                         <?php
                         $isOngoing = ! empty($tb['isOngoing']);
-                        $tenureNumber = count($tenureBlocks['tenures']) - $tbIndex;
                         $tenureCarriedArrears = (int) array_sum(array_slice(array_column($tenureBlocks['tenures'], 'arrearsFromStart'), $tbIndex + 1));
                         $tenureArrearsFromFirst = $tenureCarriedArrears + (int) $tb['totalRemaining'];
-                        $blockTitle = 'Tenure ' . $tenureNumber . ($isOngoing ? ' · Ongoing' : '');
-                        $blockDates = trim((string) $tb['startDate'] . ($tb['endDate'] !== '' ? ' → ' . $tb['endDate'] : ''));
-                        if ($tb['tenureLabel'] !== '') {
-                            $blockDates .= ' · ' . $tb['tenureLabel'];
-                        }
+                        $blockTitle = $isOngoing ? 'Current tenancy' : 'Previous tenancy';
+                        $blockDates = isset($tb['periodLabel']) && $tb['periodLabel'] !== ''
+                            ? $tb['periodLabel']
+                            : trim((string) $tb['startDate'] . ($tb['endDate'] !== '' ? ' → ' . $tb['endDate'] : ''));
                         $blockPill = $isOngoing ? 'Ongoing' : ucfirst((string) $tb['status']);
                         if ($isOngoing) {
                             $blockPillClass = 'pill-ongoing';
@@ -707,11 +738,11 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                         <strong><?= htmlspecialchars(app_currency($tb['totalPaid']), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                     <article>
-                                        <span>Rent remaining (current tenure)</span>
+                                        <span>Rent remaining (current period)</span>
                                         <strong<?= $tb['totalRemaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($tb['totalRemaining']), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                     <article class="<?= $tenureArrearsFromFirst > 0 ? 'stat-highlight-danger' : '' ?>">
-                                        <span>Arrears from the first tenure</span>
+                                        <span>Arrears from the first period</span>
                                         <strong<?= $tenureArrearsFromFirst > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($tenureArrearsFromFirst), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                 </div>
@@ -807,15 +838,15 @@ require dirname(__DIR__) . '/partials/admin-header.php';
 
                                 <?php if (! $isOngoing && $tb['serviceChargeRate'] > 0): ?>
                                     <p class="muted-text" style="margin-top:12px">
-                                        Service charge was <?= htmlspecialchars(app_currency($tb['serviceChargeRate']), ENT_QUOTES, 'UTF-8') ?>/month for this tenure and is assumed settled through <?= htmlspecialchars((string) $tb['endDate'], ENT_QUOTES, 'UTF-8') ?>.
-                                        <?php if ($tb['balanceCarried'] > 0): ?>Any rent shortfall (<?= htmlspecialchars(app_currency($tb['balanceCarried']), ENT_QUOTES, 'UTF-8') ?>) was carried into the next tenure.<?php endif; ?>
+                                        Service charge was <?= htmlspecialchars(app_currency($tb['serviceChargeRate']), ENT_QUOTES, 'UTF-8') ?>/month for this period and is assumed settled through <?= htmlspecialchars((string) $tb['endDate'], ENT_QUOTES, 'UTF-8') ?>.
+                                        <?php if ($tb['balanceCarried'] > 0): ?>Any rent shortfall (<?= htmlspecialchars(app_currency($tb['balanceCarried']), ENT_QUOTES, 'UTF-8') ?>) was carried into the next period.<?php endif; ?>
                                     </p>
                                 <?php endif; ?>
                             </div>
                         </details>
                     <?php endforeach; ?>
 
-                    <p class="muted-text">Each tenure is numbered in order (Tenure 1 is the first tenure the tenant started). The ongoing tenure is listed first with its total shown at the top when opened; previous tenures follow in collapsed accordions with the same totals and their per-year breakdown. Arrears are owed from the start of the tenure to the end of the period.</p>
+                    <p class="muted-text">Each tenancy period is listed by its actual dates and length, so there is no gap between them. The current tenancy is shown first with its total displayed at the top when opened; earlier periods follow in collapsed accordions with the same totals and their per-year breakdown. Arrears are owed from the start of the period to the end of the period.</p>
                 </div>
             <?php endif; ?>
 
@@ -825,7 +856,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <div class="section-heading" style="margin-bottom:12px">
                         <div>
                             <span class="eyebrow">Service charges</span>
-                            <h3>Service charge breakdown by tenure</h3>
+                            <h3>Service charge breakdown by tenancy period</h3>
                         </div>
                     </div>
 
@@ -839,7 +870,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <strong><?= htmlspecialchars(app_currency($scBlocks['totalPaid']), ENT_QUOTES, 'UTF-8') ?></strong>
                         </article>
                         <article class="<?= $scBlocks['totalRemaining'] > 0 ? 'stat-highlight-danger' : '' ?>">
-                            <span>Arrears of all tenures</span>
+                            <span>Arrears across all periods</span>
                             <strong<?= $scBlocks['totalRemaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($scBlocks['totalRemaining']), ENT_QUOTES, 'UTF-8') ?></strong>
                         </article>
                     </div>
@@ -847,14 +878,12 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <?php foreach ($scBlocks['tenures'] as $tbIndex => $tb): ?>
                         <?php
                         $isOngoing = ! empty($tb['isOngoing']);
-                        $tenureNumber = count($scBlocks['tenures']) - $tbIndex;
                         $scCarriedArrears = (int) array_sum(array_slice(array_column($scBlocks['tenures'], 'arrearsFromStart'), $tbIndex + 1));
                         $scArrearsFromFirst = $scCarriedArrears + (int) $tb['totalRemaining'];
-                        $blockTitle = 'Tenure ' . $tenureNumber . ($isOngoing ? ' · Ongoing' : '');
-                        $blockDates = trim((string) $tb['startDate'] . ($tb['endDate'] !== '' ? ' → ' . $tb['endDate'] : ''));
-                        if ($tb['tenureLabel'] !== '') {
-                            $blockDates .= ' · ' . $tb['tenureLabel'];
-                        }
+                        $blockTitle = $isOngoing ? 'Current tenancy' : 'Previous tenancy';
+                        $blockDates = isset($tb['periodLabel']) && $tb['periodLabel'] !== ''
+                            ? $tb['periodLabel']
+                            : trim((string) $tb['startDate'] . ($tb['endDate'] !== '' ? ' → ' . $tb['endDate'] : ''));
                         $blockPill = $isOngoing ? 'Ongoing' : ucfirst((string) $tb['status']);
                         if ($isOngoing) {
                             $blockPillClass = 'pill-ongoing';
@@ -887,59 +916,106 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                         <strong><?= htmlspecialchars(app_currency($tb['totalPaid']), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                     <article>
-                                        <span>SC remaining (current tenure)</span>
+                                        <span>SC remaining (current period)</span>
                                         <strong<?= $tb['totalRemaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($tb['totalRemaining']), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                     <article class="<?= $scArrearsFromFirst > 0 ? 'stat-highlight-danger' : '' ?>">
-                                        <span>SC arrears from the first tenure</span>
+                                        <span>SC arrears from the first period</span>
                                         <strong<?= $scArrearsFromFirst > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($scArrearsFromFirst), ENT_QUOTES, 'UTF-8') ?></strong>
                                     </article>
                                 </div>
 
-                                <div style="overflow-x:auto">
-                                    <div class="record-table">
-                                        <div class="record-table-row record-table-head sc-table-col-6">
-                                            <span>Month</span>
-                                            <span>Monthly rate</span>
-                                            <span>Reference</span>
-                                            <span>Date</span>
-                                            <span>Paid</span>
-                                            <span>Remaining</span>
-                                        </div>
-                                        <?php foreach ($tb['years'] as $scYear): ?>
-                                            <div class="sc-year-divider">
-                                                <span><strong>Year <?= (int) $scYear['yearNumber'] ?></strong> <span class="muted-text"><?= htmlspecialchars((string) ($scYear['startLabel'] . ' → ' . $scYear['endLabel']), ENT_QUOTES, 'UTF-8') ?></span></span>
-                                                <span class="muted-text"><?= htmlspecialchars(app_currency($scYear['rate']), ENT_QUOTES, 'UTF-8') ?> billed · <?= htmlspecialchars(app_currency($scYear['paid']), ENT_QUOTES, 'UTF-8') ?> paid · <?= htmlspecialchars(app_currency($scYear['remaining']), ENT_QUOTES, 'UTF-8') ?> remaining</span>
-                                            </div>
-                                            <?php foreach ($scYear['months'] as $m): ?>
-                                                <?php $allocCount = count($m['allocations']); ?>
-                                                <?php if ($allocCount === 0): ?>
-                                                    <div class="record-table-row sc-table-col-6<?= $m['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
-                                                        <span><strong><?= htmlspecialchars((string) $m['startLabel'], ENT_QUOTES, 'UTF-8') ?></strong></span>
-                                                        <span><?= htmlspecialchars(app_currency($m['rate']), ENT_QUOTES, 'UTF-8') ?></span>
-                                                        <span class="muted-text">—</span>
-                                                        <span class="muted-text">—</span>
-                                                        <span><?= $m['paid'] > 0 ? htmlspecialchars(app_currency($m['paid']), ENT_QUOTES, 'UTF-8') : '&mdash;' ?></span>
-                                                        <span>
-                                                            <strong<?= $m['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($m['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
-                                                        </span>
-                                                    </div>
-                                                <?php else: ?>
-                                                    <?php foreach ($m['allocations'] as $aI => $a): ?>
-                                                        <div class="record-table-row sc-table-col-6<?= $m['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
-                                                            <span><strong><?= $aI === 0 ? htmlspecialchars((string) $m['startLabel'], ENT_QUOTES, 'UTF-8') : '' ?></strong></span>
-                                                            <span><?= $aI === 0 ? htmlspecialchars(app_currency($m['rate']), ENT_QUOTES, 'UTF-8') : '' ?></span>
-                                                            <span><?= htmlspecialchars((string) $a['reference'], ENT_QUOTES, 'UTF-8') ?></span>
-                                                            <span><?= htmlspecialchars((string) $a['date'], ENT_QUOTES, 'UTF-8') ?></span>
-                                                            <span><?= htmlspecialchars(app_currency($a['amount']), ENT_QUOTES, 'UTF-8') ?></span>
-                                                            <span><?= $aI === $allocCount - 1 ? '<strong' . ($m['remaining'] > 0 ? ' class="text-danger"' : '') . '>' . htmlspecialchars(app_currency($m['remaining']), ENT_QUOTES, 'UTF-8') . '</strong>' : '' ?></span>
+                                <?php foreach ($tb['years'] as $scYear): ?>
+                                            <details class="tenure-year-block"<?= $scYear['isCurrentYear'] ? ' open' : '' ?> style="border:1px dashed var(--line); border-radius:10px; margin:10px 0; padding:10px 16px;">
+                                                <summary style="cursor:pointer; display:flex; flex-wrap:wrap; gap:8px 20px; align-items:center; justify-content:space-between; font-size:.9rem;">
+                                                    <span>
+                                                        <strong>Year <?= (int) $scYear['yearNumber'] ?></strong>
+                                                        <span class="muted-text" style="display:block; font-size:.78rem"><?= htmlspecialchars((string) ($scYear['yearStart'] . ' → ' . $scYear['yearEnd']), ENT_QUOTES, 'UTF-8') ?></span>
+                                                    </span>
+                                                    <span>
+                                                        <?php if ($scYear['isArrears']): ?>
+                                                            <span class="type-pill pill-owing">Arrears</span>
+                                                        <?php elseif ($scYear['remaining'] <= 0): ?>
+                                                            <span class="type-pill pill-active">Settled</span>
+                                                        <?php else: ?>
+                                                            <span class="type-pill pill-ongoing">Ongoing</span>
+                                                        <?php endif; ?>
+                                                        <span class="muted-text tenure-summary-amount" style="font-size:.78rem; margin-left:10px"><?= htmlspecialchars(app_currency($scYear['rate']), ENT_QUOTES, 'UTF-8') ?> billed · <?= htmlspecialchars(app_currency($scYear['paid']), ENT_QUOTES, 'UTF-8') ?> paid · <?= htmlspecialchars(app_currency($scYear['remaining']), ENT_QUOTES, 'UTF-8') ?> remaining</span>
+                                                    </span>
+                                                </summary>
+
+                                                <div style="margin-top:12px; overflow-x:auto">
+                                                    <div class="record-table">
+                                                        <div class="record-table-row record-table-head sc-table-col-6">
+                                                            <span>Month</span>
+                                                            <span>Monthly rate</span>
+                                                            <span>Reference</span>
+                                                            <span>Date</span>
+                                                            <span>Paid</span>
+                                                            <span>Remaining</span>
                                                         </div>
-                                                    <?php endforeach; ?>
-                                                <?php endif; ?>
-                                            <?php endforeach; ?>
+                                                        <?php
+                                                            $scYearRates = array();
+
+                                                            foreach ($scYear['months'] as $scRateMonth) {
+                                                                $scYearRates[(int) $scRateMonth['rate']] = true;
+                                                            }
+
+                                                            $scYearRates = array_keys($scYearRates);
+                                                            sort($scYearRates);
+                                                            $scYearRateLabel = count($scYearRates) > 1
+                                                                ? app_currency($scYearRates[0]) . ' – ' . app_currency($scYearRates[count($scYearRates) - 1])
+                                                                : app_currency(isset($scYearRates[0]) ? $scYearRates[0] : 0);
+                                                            ?>
+                                                            <?php foreach ($scYear['months'] as $m): ?>
+                                                            <?php $allocCount = count($m['allocations']); ?>
+                                                            <?php if ($allocCount === 0): ?>
+                                                                <div class="record-table-row sc-table-col-6<?= $m['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
+                                                                    <span><strong><?= htmlspecialchars((string) $m['startLabel'], ENT_QUOTES, 'UTF-8') ?></strong></span>
+                                                                    <span><?= htmlspecialchars(app_currency($m['rate']), ENT_QUOTES, 'UTF-8') ?></span>
+                                                                    <span class="muted-text">—</span>
+                                                                    <span class="muted-text">—</span>
+                                                                    <span><?= $m['paid'] > 0 ? htmlspecialchars(app_currency($m['paid']), ENT_QUOTES, 'UTF-8') : '&mdash;' ?></span>
+                                                                    <span>
+                                                                        <strong<?= $m['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($m['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                                    </span>
+                                                                </div>
+                                                            <?php else: ?>
+                                                                <?php foreach ($m['allocations'] as $aI => $a): ?>
+                                                                    <div class="record-table-row sc-table-col-6<?= $m['remaining'] > 0 ? ' record-table-row--highlight' : '' ?>">
+                                                                        <span><strong><?= $aI === 0 ? htmlspecialchars((string) $m['startLabel'], ENT_QUOTES, 'UTF-8') : '' ?></strong></span>
+                                                                        <span><?= $aI === 0 ? htmlspecialchars(app_currency($m['rate']), ENT_QUOTES, 'UTF-8') : '' ?></span>
+                                                                        <span><?= htmlspecialchars((string) $a['reference'], ENT_QUOTES, 'UTF-8') ?></span>
+                                                                        <span><?= htmlspecialchars((string) $a['date'], ENT_QUOTES, 'UTF-8') ?></span>
+                                                                        <span><?= htmlspecialchars(app_currency($a['amount']), ENT_QUOTES, 'UTF-8') ?></span>
+                                                                        <span><?= $aI === $allocCount - 1 ? '<strong' . ($m['remaining'] > 0 ? ' class="text-danger"' : '') . '>' . htmlspecialchars(app_currency($m['remaining']), ENT_QUOTES, 'UTF-8') . '</strong>' : '' ?></span>
+                                                                    </div>
+                                                                <?php endforeach; ?>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                </div>
+
+                                                <div class="manager-stats" style="margin-top:12px">
+                                                    <article>
+                                                        <span>Monthly rate</span>
+                                                        <strong><?= htmlspecialchars($scYearRateLabel, ENT_QUOTES, 'UTF-8') ?></strong>
+                                                    </article>
+                                                    <article>
+                                                        <span>SC billed</span>
+                                                        <strong><?= htmlspecialchars(app_currency($scYear['rate']), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                    </article>
+                                                    <article>
+                                                        <span>SC paid</span>
+                                                        <strong><?= htmlspecialchars(app_currency($scYear['paid']), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                    </article>
+                                                    <article>
+                                                        <span>SC remaining</span>
+                                                        <strong<?= $scYear['remaining'] > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($scYear['remaining']), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                    </article>
+                                                </div>
+                                            </details>
                                         <?php endforeach; ?>
-                                    </div>
-                                </div>
 
                                 <?php
                                 $scHasAssumedMonths = false;
@@ -952,14 +1028,14 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                 ?>
                                 <?php if (! $isOngoing && $tb['serviceChargeRate'] > 0 && $scHasAssumedMonths): ?>
                                     <p class="muted-text" style="margin-top:12px">
-                                        Service charge was <?= htmlspecialchars(app_currency($tb['serviceChargeRate']), ENT_QUOTES, 'UTF-8') ?>/month for this tenure. Months without a recorded receipt are assumed settled through <?= htmlspecialchars((string) $tb['endDate'], ENT_QUOTES, 'UTF-8') ?>.
+                                        Service charge was <?= htmlspecialchars(app_currency($tb['serviceChargeRate']), ENT_QUOTES, 'UTF-8') ?>/month for this period. Months without a recorded receipt are assumed settled through <?= htmlspecialchars((string) $tb['endDate'], ENT_QUOTES, 'UTF-8') ?>.
                                     </p>
                                 <?php endif; ?>
                             </div>
                         </details>
                     <?php endforeach; ?>
 
-                    <p class="muted-text">Each tenure is numbered in order (Tenure 1 is the first tenure the tenant started) and is billed monthly at the rate in effect for that month. A receipt is applied to the earliest unpaid months first, so one reference can cover several different months — each covered month shows that same reference and the receipt date. When the service charge rate changes, the new amount takes effect from the following month onward.</p>
+                    <p class="muted-text">Each tenancy period is listed by its actual dates and length, so there is no gap between them. Every period is billed monthly at the rate in effect for that month. A receipt is applied to the earliest unpaid months first, so one reference can cover several different months — each covered month shows that same reference and the receipt date. When the service charge rate changes, the new amount takes effect from the following month onward.</p>
                 </div>
             <?php endif; ?>
         </section>
@@ -1039,7 +1115,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <div class="record-table-row record-table-head">
                     <span>Tenant</span>
                     <span>Unit</span>
-                    <span>Tenure</span>
+                    <span>Tenancy Period</span>
                     <span>Annual Rent/Service Charge</span>
                     <span>Rent Payable</span>
                     <span>SC Payable</span>
@@ -1081,8 +1157,8 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <?php endif; ?>
                         </span>
                         <span>
-                            <strong><?= htmlspecialchars((string) ($tenant['tenure'] !== '' ? $tenant['tenure'] : '—'), ENT_QUOTES, 'UTF-8') ?></strong>
-                            <span class="muted-text" style="display:block; font-size:.8rem"><?= htmlspecialchars(trim((string) $tenant['startDate'] . ($tenant['endDate'] !== '' ? ' → ' . $tenant['endDate'] : '')), ENT_QUOTES, 'UTF-8') ?></span>
+                            <strong><?= htmlspecialchars(trim((string) $tenant['startDate'] . ($tenant['endDate'] !== '' ? ' → ' . $tenant['endDate'] : '')), ENT_QUOTES, 'UTF-8') ?></strong>
+                            <span class="muted-text" style="display:block; font-size:.8rem"><?= (int) $tenant['tenure'] ?> year<?= (int) $tenant['tenure'] === 1 ? '' : 's' ?></span>
                         </span>
                         <span>
                             <strong><?= htmlspecialchars(app_currency(isset($balances['annualRent']) ? (int) $balances['annualRent'] : 0), ENT_QUOTES, 'UTF-8') ?>/yr</strong>
@@ -1272,11 +1348,11 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         if (rent <= 0) {
             rentHint.textContent = 'Select a property to see the yearly rent.';
         } else if (paid <= 0) {
-            rentHint.textContent = 'Nothing paid yet, so the full ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year tenure stays payable.';
+            rentHint.textContent = 'Nothing paid yet, so the full ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term stays payable.';
         } else if (paid >= tenureTotal) {
-            rentHint.textContent = 'The tenant paid ' + formatterAmount(paid) + ', covering the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year tenure.';
+            rentHint.textContent = 'The tenant paid ' + formatterAmount(paid) + ', covering the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term.';
         } else {
-            rentHint.textContent = 'Paid ' + formatterAmount(paid) + ', leaving ' + formatterAmount(tenureTotal - paid) + ' of the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year tenure still payable.';
+            rentHint.textContent = 'Paid ' + formatterAmount(paid) + ', leaving ' + formatterAmount(tenureTotal - paid) + ' of the ' + formatterAmount(tenureTotal) + ' rent for the ' + years + ' year term still payable.';
         }
     }
 

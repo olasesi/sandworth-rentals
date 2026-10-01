@@ -2990,13 +2990,6 @@ code {
     color: var(--ink);
 }
 
-.admin-tenant-summary-grid .admin-tenant-name {
-    font-family: "Fraunces", Georgia, serif;
-    font-size: clamp(1.3rem, 1.8vw, 1.6rem);
-    line-height: 1.15;
-    margin-top: 2px;
-}
-
 .admin-tenant-charges {
     margin-top: 14px;
     padding-top: 14px;

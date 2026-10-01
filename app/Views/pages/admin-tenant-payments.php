@@ -48,7 +48,7 @@ $typeTargets = array(
         'total' => $rentOwed,
         'lines' => array(
             array('label' => 'Rent payable on this tenure', 'amount' => $rentTenureOwed),
-            array('label' => 'Arrears carried from an earlier tenure', 'amount' => $rentPriorArrears),
+            array('label' => 'Arrears carried from an earlier period', 'amount' => $rentPriorArrears),
         ),
         'note' => 'A rent payment reduces the rent payable for the tenure, oldest year first.',
     ),
@@ -249,11 +249,11 @@ require dirname(__DIR__) . '/partials/admin-header.php';
 
         <div class="manager-stats" style="margin-bottom:14px">
             <article>
-                <span>Rent payable on this tenure</span>
+                <span>Rent payable on this term</span>
                 <strong<?= $rentTenureOwed > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($rentTenureOwed), ENT_QUOTES, 'UTF-8') ?></strong>
             </article>
             <article>
-                <span>Arrears from an earlier tenure</span>
+                <span>Arrears from an earlier period</span>
                 <strong<?= $rentPriorArrears > 0 ? ' class="text-danger"' : '' ?>><?= htmlspecialchars(app_currency($rentPriorArrears), ENT_QUOTES, 'UTF-8') ?></strong>
             </article>
             <article class="<?= $rentOwed > 0 ? 'stat-highlight-danger' : '' ?>">
@@ -607,12 +607,12 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             <div class="section-heading" style="margin:26px 0 12px">
                 <div>
                     <span class="eyebrow">History</span>
-                    <h3>Earlier tenures</h3>
+                    <h3>Earlier tenancy periods</h3>
                 </div>
             </div>
             <div class="record-table">
                 <div class="record-table-row record-table-head">
-                    <span>Tenure</span>
+                    <span>Term</span>
                     <span>Period</span>
                     <span>Billed</span>
                     <span>Paid</span>
@@ -621,7 +621,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <?php foreach ((array) $tenureBlocks['tenures'] as $blockIndex => $block): ?>
                     <?php if (! empty($block['isOngoing'])) { continue; } ?>
                     <div class="record-table-row">
-                        <span><strong><?= htmlspecialchars((string) $block['tenureLabel'], ENT_QUOTES, 'UTF-8') ?></strong></span>
+                        <span><strong><?= htmlspecialchars((string) ($block['periodLabel'] !== '' ? $block['periodLabel'] : $block['tenureLabel']), ENT_QUOTES, 'UTF-8') ?></strong></span>
                         <span><?= htmlspecialchars(trim((string) $block['startDate'] . ' → ' . $block['endDate']), ENT_QUOTES, 'UTF-8') ?></span>
                         <span><?= htmlspecialchars(app_currency((int) $block['totalRates']), ENT_QUOTES, 'UTF-8') ?></span>
                         <span><?= htmlspecialchars(app_currency((int) $block['totalPaid']), ENT_QUOTES, 'UTF-8') ?></span>

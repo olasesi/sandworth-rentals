@@ -91,7 +91,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
 
         <div class="admin-tenant-summary-grid">
             <div class="admin-tenant-summary">
-                <p class="muted-text">Tenure / term</p>
+                <p class="muted-text">Term (years)</p>
                 <strong><?= htmlspecialchars($billing['tenure'] !== '' ? $billing['tenure'] : '—', ENT_QUOTES, 'UTF-8') ?></strong>
             </div>
             <div class="admin-tenant-summary">
@@ -211,7 +211,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             <div class="record-table">
                 <div class="record-table-row record-table-head">
                     <span>Tenant</span>
-                    <span>Tenure</span>
+                    <span>Term</span>
                     <span>Rent</span>
                     <span>Start</span>
                     <span>End</span>

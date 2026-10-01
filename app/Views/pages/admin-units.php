@@ -27,7 +27,7 @@ $formButton = $editUnit ? 'Save changes' : 'Add ' . $unitLabel;
 
 $activeAdminPage = 'inventory';
 $adminTitle = ($isMall ? 'Shops' : ucfirst($unitLabelPlural)) . ' inside ' . $property['title'] . '.';
-$adminDescription = 'Manage the individual ' . $unitLabelPlural . ', stores, or flats inside this property, with each tenant, tenure, and rent details.';
+$adminDescription = 'Manage the individual ' . $unitLabelPlural . ', stores, or flats inside this property, with each tenant, term, and rent details.';
 
 require dirname(__DIR__) . '/partials/admin-header.php';
 ?>
@@ -49,7 +49,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         <?php if ($editUnit): ?>
             <div class="admin-editor-state">
                 <span class="type-pill">Editing <?= $unitLabel ?> #<?= (int) $editUnit['id'] ?></span>
-                <p class="muted-text">Update the owner, tenure, and rent details for this <?= $unitLabel ?>.</p>
+                <p class="muted-text">Update the owner, term, and rent details for this <?= $unitLabel ?>.</p>
             </div>
         <?php endif; ?>
 
@@ -107,7 +107,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 </div>
 
                 <div class="admin-field">
-                    <label for="unit-tenure">Tenure / term</label>
+                    <label for="unit-tenure">Term</label>
                     <input id="unit-tenure" name="tenure" type="text" placeholder="Twelve months, 3 years..." value="<?= $editUnit ? htmlspecialchars((string) $editUnit['tenure'], ENT_QUOTES, 'UTF-8') : '' ?>">
                 </div>
 
@@ -171,14 +171,14 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         <?php if ($units === array()): ?>
             <article class="empty-state">
                 <h2>No <?= $unitLabelPlural ?> registered yet.</h2>
-                <p>Use the form above to add the first <?= $unitLabel ?> with its tenant, tenure, and rent details.</p>
+                <p>Use the form above to add the first <?= $unitLabel ?> with its tenant, term, and rent details.</p>
             </article>
         <?php else: ?>
             <div class="record-table">
                 <div class="record-table-row record-table-head">
                     <span><?= $isMall ? 'Shop' : ($isApartment ? 'Flat' : 'Unit') ?></span>
                     <span>Owner / occupant</span>
-                    <span>Tenure</span>
+                    <span>Term</span>
                     <span>Rent</span>
                     <span>Status</span>
                     <span>Actions</span>

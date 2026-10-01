@@ -33,7 +33,7 @@ $initialBalance = max(0, $expectedRent - $priorPaid - ($formPostPayment && $form
 
 $activeAdminPage = 'tenants';
 $adminTitle = 'Hand over the keys.';
-$adminDescription = 'Acknowledge that the tenant has received the apartment keys after payment. The balance against the rent for the whole tenure is shown while you type and again when the form is submitted.';
+$adminDescription = 'Acknowledge that the tenant has received the apartment keys after payment. The balance against the rent for the whole term is shown while you type and again when the form is submitted.';
 
 require dirname(__DIR__) . '/partials/admin-header.php';
 ?>
@@ -65,15 +65,15 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                 <strong><?= $propertyRentYearly > 0 ? htmlspecialchars(app_currency($propertyRentYearly), ENT_QUOTES, 'UTF-8') : '—' ?></strong>
             </article>
             <article>
-                <span>Rent for the <?= (int) max(1, $tenureYears) ?> year tenure</span>
+                <span>Rent for the <?= (int) max(1, $tenureYears) ?> year term</span>
                 <strong><?= $expectedRent > 0 ? htmlspecialchars(app_currency($expectedRent), ENT_QUOTES, 'UTF-8') : '—' ?></strong>
             </article>
             <article>
-                <span>Paid on this tenure</span>
+                <span>Paid on this term</span>
                 <strong><?= htmlspecialchars(app_currency($priorPaid), ENT_QUOTES, 'UTF-8') ?></strong>
             </article>
             <article>
-                <span>Rent payable on the tenure</span>
+                <span>Rent payable on the term</span>
                 <strong class="<?= max(0, $expectedRent - $priorPaid) > 0 ? 'admin-amount-due' : 'admin-amount-ok' ?>"><?= htmlspecialchars(app_currency(max(0, $expectedRent - $priorPaid)), ENT_QUOTES, 'UTF-8') ?></strong>
             </article>
             <article>
@@ -137,8 +137,8 @@ require dirname(__DIR__) . '/partials/admin-header.php';
 
             <p class="muted-text" id="key-balance-note" style="margin-top:0">
                 <?= $initialBalance > 0
-                    ? 'A balance of ' . htmlspecialchars(app_currency($initialBalance), ENT_QUOTES, 'UTF-8') . ' will remain on the rent for the tenure. The form can still be submitted.'
-                    : 'This payment settles the rent for the tenure in full.' ?>
+                    ? 'A balance of ' . htmlspecialchars(app_currency($initialBalance), ENT_QUOTES, 'UTF-8') . ' will remain on the rent for the term. The form can still be submitted.'
+                    : 'This payment settles the rent for the term in full.' ?>
             </p>
 
             <div class="admin-form-actions">
@@ -178,8 +178,8 @@ require dirname(__DIR__) . '/partials/admin-header.php';
         balanceEl.className = balance > 0 ? 'admin-amount-due' : 'admin-amount-ok';
 
         noteEl.textContent = balance > 0
-            ? 'A balance of ' + formatter(balance) + ' will remain on the rent for the tenure. The form can still be submitted.'
-            : 'This payment settles the rent for the tenure in full.';
+            ? 'A balance of ' + formatter(balance) + ' will remain on the rent for the term. The form can still be submitted.'
+            : 'This payment settles the rent for the term in full.';
     };
 
     amountInput.addEventListener('input', update);
