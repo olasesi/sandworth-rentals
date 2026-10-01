@@ -1059,7 +1059,6 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         $unitSub = $tenant['block'] !== '' ? $tenant['block'] : '';
                     }
                     $tenantViewHref = app_url('admin-tenants', array('view_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
-                    $tenantEditHref = app_url('admin-tenants', array('edit_tenant' => $tenant['unitId'], 'unit_table' => $tenant['unitTable']));
                     $balances = isset($tenant['balances']) ? $tenant['balances'] : array('priorArrears' => 0, 'totalOwed' => 0);
                     $priorArrears = (int) $balances['priorArrears'];
                     $totalOwed = (int) $balances['totalOwed'];
@@ -1113,7 +1112,6 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <span>
                             <div style="display:flex; gap:6px; align-items:center">
                                 <a class="admin-icon-button admin-icon-button-view" href="<?= htmlspecialchars($tenantViewHref, ENT_QUOTES, 'UTF-8') ?>" aria-label="View tenant details" title="View tenant details">View</a>
-                                <a class="admin-icon-button admin-icon-button-edit" href="<?= htmlspecialchars($tenantEditHref, ENT_QUOTES, 'UTF-8') ?>">Edit</a>
                             </div>
                         </span>
                     </div>
