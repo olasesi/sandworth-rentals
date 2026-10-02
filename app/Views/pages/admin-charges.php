@@ -27,35 +27,55 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             </article>
         <?php else: ?>
             <div class="record-table">
-                <div class="record-table-row record-table-head">
+                <div class="record-table-row record-table-row--charges record-table-head">
                     <span>Property</span>
                     <span>Purpose</span>
                     <span>Annual Rent</span>
                     <span>Monthly (derived)</span>
                     <span>Service Charge</span>
                     <span>Deposit</span>
-                    <span>Rate History</span>
+                    <span>Rent History</span>
+                    <span>SC History</span>
                 </div>
                 <?php foreach ($properties as $property): ?>
                     <?php
                         $id = (int) $property['id'];
-                        $cc = isset($charges[$id]) ? $charges[$id] : array('current' => array('monthlyRent' => 0, 'annualRent' => 0, 'serviceCharge' => 0, 'securityDeposit' => 0), 'history' => array());
+                        $cc = isset($charges[$id]) ? $charges[$id] : array('current' => array('monthlyRent' => 0, 'annualRent' => 0, 'serviceCharge' => 0, 'securityDeposit' => 0), 'history' => array(), 'rentHistory' => array());
                         $current = $cc['current'];
                         $history = $cc['history'];
+                        $rentHistory = isset($cc['rentHistory']) ? $cc['rentHistory'] : array();
                         $purpose = isset($property['purpose']) ? (string) $property['purpose'] : 'rent';
                         $historyCount = count($history);
                         $recentHistory = array_slice($history, max(0, $historyCount - 3), 3);
+                        $rentHistoryCount = count($rentHistory);
+                        $recentRentHistory = array_slice($rentHistory, max(0, $rentHistoryCount - 3), 3);
+                        $showAnnualRent = (int) $current['annualRent'] > 0 ? (int) $current['annualRent'] : (int) $property['monthlyRent'];
                     ?>
-                    <div class="record-table-row">
+                    <div class="record-table-row record-table-row--charges">
                         <span>
                             <strong><?= htmlspecialchars((string) $property['title'], ENT_QUOTES, 'UTF-8') ?></strong>
                             <span class="muted-text" style="display:block; font-size:.8rem"><?= htmlspecialchars((string) $property['location'], ENT_QUOTES, 'UTF-8') ?></span>
                         </span>
                         <span><?= htmlspecialchars(ucfirst($purpose), ENT_QUOTES, 'UTF-8') ?></span>
-                        <span style="font-weight:700"><?= htmlspecialchars(app_currency((int) $property['monthlyRent']), ENT_QUOTES, 'UTF-8') ?></span>
-                        <span style="font-weight:700"><?= htmlspecialchars(app_currency($purpose === 'sale' || (int) $property['monthlyRent'] <= 0 ? 0 : (int) round((int) $property['monthlyRent'] / 12)), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span style="font-weight:700"><?= htmlspecialchars(app_currency($showAnnualRent), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span style="font-weight:700"><?= htmlspecialchars(app_currency($purpose === 'sale' || $showAnnualRent <= 0 ? 0 : (int) round($showAnnualRent / 12)), ENT_QUOTES, 'UTF-8') ?></span>
                         <span style="font-weight:700"><?= htmlspecialchars(app_currency($current['serviceCharge']), ENT_QUOTES, 'UTF-8') ?></span>
                         <span style="font-weight:700"><?= htmlspecialchars(app_currency($current['securityDeposit']), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span>
+                            <?php if ($recentRentHistory !== array()): ?>
+                                <?php foreach ($recentRentHistory as $h): ?>
+                                    <span style="display:block; font-size:.8rem">
+                                        <strong><?= htmlspecialchars((string) $h['effectiveFrom'], ENT_QUOTES, 'UTF-8') ?>:</strong>
+                                        <?= htmlspecialchars(app_currency((int) $h['annualRent']), ENT_QUOTES, 'UTF-8') ?>
+                                    </span>
+                                <?php endforeach; ?>
+                                <?php if ($rentHistoryCount > 3): ?>
+                                    <span class="muted-text" style="display:block; font-size:.75rem">+ <?= ($rentHistoryCount - 3) ?> more</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span class="muted-text" style="font-size:.8rem">No history yet</span>
+                            <?php endif; ?>
+                        </span>
                         <span>
                             <?php if ($recentHistory !== array()): ?>
                                 <?php foreach ($recentHistory as $i => $h): ?>
@@ -76,7 +96,7 @@ require dirname(__DIR__) . '/partials/admin-header.php';
             </div>
 
             <h3 style="margin-top:2rem">Update property charges</h3>
-            <p class="muted-text" style="margin-bottom:1rem">Pick a property and enter the new rate. Service charge changes take effect from the month you choose (defaults to the current month). Rent changes apply to future registrations and renewals only.</p>
+            <p class="muted-text" style="margin-bottom:1rem">Pick a property and enter the new rate. Both charges keep a dated history, so tenants are billed the rate that applied to the period being paid and anything they have already paid stays put. Rent is charged per year, so its change date is a day rather than a month.</p>
 
             <div class="admin-form-grid" style="grid-template-columns: 1fr 1fr; gap:2rem;">
                 <!-- Rent update form -->
@@ -101,7 +121,12 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                                 <input id="rent-amount" name="annual_rent" type="number" min="0" step="1000" placeholder="e.g. 5000000" value="<?= isset($oldInput['annual_rent']) ? htmlspecialchars((string) $oldInput['annual_rent'], ENT_QUOTES, 'UTF-8') : '' ?>" required>
                             </div>
                         </div>
-                        <button type="submit" class="solid-button" onclick="return confirm('Update the annual rent for this property? This affects new and renewed tenancies only.');">Save rent</button>
+                        <div class="admin-field">
+                            <label for="rent-effective">Effective from date</label>
+                            <input id="rent-effective" name="rent_effective_from" type="date" value="<?= isset($oldInput['rent_effective_from']) ? htmlspecialchars((string) $oldInput['rent_effective_from'], ENT_QUOTES, 'UTF-8') : date('Y-m-d') ?>" required>
+                            <p class="muted-text">Rent is charged per year, so the new rate starts from the date you pick. Tenancies already running keep the rent they signed, and a renewal picks up whatever rate is in force when it starts.</p>
+                        </div>
+                        <button type="submit" class="solid-button" onclick="return confirm('Update the annual rent for this property? Tenancies already running are not affected.');">Save rent</button>
                     </form>
                 </div>
 

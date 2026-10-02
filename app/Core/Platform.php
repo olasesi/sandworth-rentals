@@ -47,9 +47,11 @@ final class Platform
         $this->ensureUnitTables();
         $this->ensureTenureHistoryTable();
         $this->ensureServiceChargeTables();
+        $this->ensureRentHistoryTable();
         $this->ensureTenancyDocumentsTable();
         $this->ensureKeyCollectionsTable();
         $this->seedServiceChargeHistory();
+        $this->seedRentHistory();
 
         $table = 'tenancies';
         $existing = $this->columnMapForTable($table);
@@ -272,6 +274,45 @@ final class Platform
             $this->database->insert('service_charge_history', array(
                 'property_id' => $propertyId,
                 'service_charge' => $baseline,
+                'effective_from' => $seedDate,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ));
+        }
+    }
+
+    private function ensureRentHistoryTable()
+    {
+        $this->database->execute('CREATE TABLE IF NOT EXISTS rent_history (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            property_id INT UNSIGNED NOT NULL,
+            annual_rent INT UNSIGNED NOT NULL DEFAULT 0,
+            effective_from DATE NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY rent_history_prop_date (property_id, effective_from),
+            KEY rent_history_property_idx (property_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+    }
+
+    private function seedRentHistory()
+    {
+        $count = (int) $this->database->fetchValue('SELECT COUNT(*) FROM rent_history');
+
+        if ($count > 0) {
+            return;
+        }
+
+        $now = $this->now();
+        $seedDate = '2001-01-01';
+
+        // Every property starts on the rate it is already advertising, so history lookups match the
+        // figures tenants were signed on before rent changes were tracked.
+        foreach ($this->allProperties() as $property) {
+            $this->database->insert('rent_history', array(
+                'property_id' => (int) $property['id'],
+                'annual_rent' => (int) $property['monthlyRent'],
                 'effective_from' => $seedDate,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -2780,6 +2821,14 @@ final class Platform
 
     public function registrationAnnualRent(array $registration)
     {
+        // A tenant is billed at the rent they signed, for the whole term. Reading the property's
+        // current rate here would let a later rent change rewrite years the tenant has already paid.
+        $signedAnnualRent = isset($registration['monthlyRent']) ? ((int) $registration['monthlyRent'] * 12) : 0;
+
+        if ($signedAnnualRent > 0) {
+            return $signedAnnualRent;
+        }
+
         $property = isset($registration['property']) && is_array($registration['property']) ? $registration['property'] : null;
 
         if ($property) {
@@ -2790,7 +2839,7 @@ final class Platform
             }
         }
 
-        return isset($registration['monthlyRent']) ? (int) ((int) $registration['monthlyRent'] * 12) : 0;
+        return 0;
     }
 
     public function registrationBalanceBreakdown(array $registration)
@@ -4810,6 +4859,74 @@ final class Platform
         return array($this->findTenantRegistration($unitTable, $unitId), null);
     }
 
+    public function rentHistoryForProperty($propertyId)
+    {
+        $propertyId = (int) $propertyId;
+
+        if ($propertyId <= 0) {
+            return array();
+        }
+
+        $rows = $this->database->fetchAll(
+            'SELECT * FROM rent_history WHERE property_id = :property_id ORDER BY effective_from ASC, id ASC',
+            array('property_id' => $propertyId)
+        );
+
+        $history = array();
+
+        foreach ($rows as $row) {
+            $history[] = array(
+                'id' => (int) $row['id'],
+                'propertyId' => $propertyId,
+                'annualRent' => (int) $row['annual_rent'],
+                'effectiveFrom' => (string) $row['effective_from'],
+                'effectiveMonth' => substr((string) $row['effective_from'], 0, 7),
+                'createdAt' => (string) $row['created_at'],
+            );
+        }
+
+        return $history;
+    }
+
+    /**
+     * The annual rent a property was on at a given point in time. Rent is charged per year, so this is
+     * looked up once per rent year using that year's start date.
+     */
+    public function rentAnnualRentForDate($propertyId, $onDate)
+    {
+        $propertyId = (int) $propertyId;
+        $onDate = trim((string) $onDate);
+        $timestamp = $onDate !== '' ? strtotime($onDate) : false;
+
+        if ($propertyId <= 0 || $timestamp === false) {
+            return 0;
+        }
+
+        $day = date('Y-m-d', $timestamp);
+        $rows = $this->database->fetchAll(
+            'SELECT annual_rent FROM rent_history WHERE property_id = :property_id AND effective_from <= :on_date ORDER BY effective_from DESC, id DESC LIMIT 1',
+            array('property_id' => $propertyId, 'on_date' => $day)
+        );
+
+        if ($rows !== array()) {
+            return (int) $rows[0]['annual_rent'];
+        }
+
+        // No history covers this date, so it predates the earliest recorded rate.
+        $earliest = $this->database->fetchOne(
+            'SELECT annual_rent FROM rent_history WHERE property_id = :property_id ORDER BY effective_from ASC, id ASC LIMIT 1',
+            array('property_id' => $propertyId)
+        );
+
+        if ($earliest) {
+            return (int) $earliest['annual_rent'];
+        }
+
+        $property = $this->findProperty($propertyId);
+
+        return $property ? (int) $property['monthlyRent'] : 0;
+    }
+
     public function serviceChargeHistoryForProperty($propertyId)
     {
         $propertyId = (int) $propertyId;
@@ -4925,7 +5042,12 @@ final class Platform
             return array('monthlyRent' => 0, 'annualRent' => 0, 'serviceCharge' => 0, 'securityDeposit' => 0);
         }
 
-        $annualRent = (int) $property['monthlyRent'];
+        $annualRent = isset($property['id']) ? $this->rentAnnualRentForDate((int) $property['id'], date('Y-m-d')) : 0;
+
+        if ($annualRent <= 0) {
+            $annualRent = (int) $property['monthlyRent'];
+        }
+
         $purpose = isset($property['purpose']) ? (string) $property['purpose'] : 'rent';
         $monthlyRent = $purpose === 'sale' || $annualRent <= 0 ? 0 : (int) round($annualRent / 12);
 
@@ -4937,7 +5059,7 @@ final class Platform
         );
     }
 
-    public function setPropertyRent($propertyId, $annualRent)
+    public function setPropertyRent($propertyId, $annualRent, $effectiveFrom = '')
     {
         $property = $this->findProperty($propertyId);
 
@@ -4951,11 +5073,50 @@ final class Platform
             return array(false, 'Enter a valid annual rent for this property.');
         }
 
-        $this->database->execute(
-            'UPDATE properties SET monthly_rent = :monthly_rent, updated_at = :updated_at WHERE id = :id',
-            array('monthly_rent' => $annualRent, 'updated_at' => $this->now(), 'id' => (int) $property['id'])
+        // Rent is agreed per year, so a change is dated to the day it starts applying.
+        $effectiveFrom = trim((string) $effectiveFrom);
+
+        if ($effectiveFrom === '') {
+            $effectiveFrom = date('Y-m-d');
+        }
+
+        $timestamp = strtotime($effectiveFrom);
+
+        if ($timestamp === false) {
+            return array(false, 'Enter a valid effective-from date for the new rent.');
+        }
+
+        $effectiveDate = date('Y-m-d', $timestamp);
+        $now = $this->now();
+        $existing = $this->database->fetchOne(
+            'SELECT id FROM rent_history WHERE property_id = :property_id AND effective_from = :effective_from LIMIT 1',
+            array('property_id' => (int) $property['id'], 'effective_from' => $effectiveDate)
         );
-        unset($this->propertyCache[(int) $property['id']]);
+
+        if ($existing) {
+            $this->database->execute(
+                'UPDATE rent_history SET annual_rent = :annual_rent, updated_at = :updated_at WHERE id = :id',
+                array('annual_rent' => $annualRent, 'updated_at' => $now, 'id' => (int) $existing['id'])
+            );
+        } else {
+            $this->database->insert('rent_history', array(
+                'property_id' => (int) $property['id'],
+                'annual_rent' => $annualRent,
+                'effective_from' => $effectiveDate,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ));
+        }
+
+        // The advertised rate is whatever is in force today. A change dated in the future is left out
+        // of it until that date arrives, so new tenancies are not quoted a rate they have not reached.
+        if ($effectiveDate <= date('Y-m-d')) {
+            $this->database->execute(
+                'UPDATE properties SET monthly_rent = :monthly_rent, updated_at = :updated_at WHERE id = :id',
+                array('monthly_rent' => $annualRent, 'updated_at' => $now, 'id' => (int) $property['id'])
+            );
+            unset($this->propertyCache[(int) $property['id']]);
+        }
 
         return array($this->findProperty($property['id']), null);
     }

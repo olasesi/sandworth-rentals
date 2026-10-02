@@ -2163,6 +2163,11 @@ code {
     align-items: start;
 }
 
+.record-table-row--charges {
+    grid-template-columns: 1.7fr .7fr .9fr .8fr .9fr .8fr 1fr 1fr;
+    align-items: start;
+}
+
 .breakdown-editor { display: grid; gap: 10px; }
 .breakdown-editor__payments { display: grid; gap: 6px; }
 
@@ -2781,15 +2786,6 @@ code {
 
 .admin-icon-button-edit:hover {
     background: var(--primary);
-}
-
-/* View — slate */
-.admin-icon-button-view {
-    background: var(--neutral);
-}
-
-.admin-icon-button-view:hover {
-    background: var(--neutral-strong);
 }
 
 /* Delete — assertive red */
@@ -3519,7 +3515,7 @@ body.is-transitioning { opacity: .7; transition: opacity .2s; }
 }
 
 .admin-tenant-table .record-table-row {
-    grid-template-columns: 1.9fr 1.2fr 1fr 1fr 1fr 1fr .7fr 1fr;
+    grid-template-columns: 1.9fr 1.2fr 1fr 1fr 1fr 1fr .7fr;
 }
 .admin-tenure-table .record-table-row {
     grid-template-columns: 1.4fr 1.6fr 1fr 1fr 1fr 1fr;

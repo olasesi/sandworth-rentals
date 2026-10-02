@@ -394,6 +394,18 @@ CREATE TABLE IF NOT EXISTS tenure_history (
     KEY tenure_history_status_idx (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS rent_history (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    property_id INT UNSIGNED NOT NULL,
+    annual_rent INT UNSIGNED NOT NULL DEFAULT 0,
+    effective_from DATE NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY rent_history_prop_date (property_id, effective_from),
+    KEY rent_history_property_idx (property_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS service_charge_history (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     property_id INT UNSIGNED NOT NULL,

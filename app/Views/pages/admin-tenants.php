@@ -242,9 +242,6 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <div>
                         <span>Yearly rent</span>
                         <strong><?= htmlspecialchars(app_currency($timelineBalances['annualRent']), ENT_QUOTES, 'UTF-8') ?></strong>
-                        <?php if ($timelineTenant['serviceCharge'] > 0): ?>
-                            <span class="muted-text">Service charge <?= htmlspecialchars(app_currency($timelineTenant['serviceCharge']), ENT_QUOTES, 'UTF-8') ?>/month</span>
-                        <?php endif; ?>
                         <?php
                         $detailAnnualRent = (int) $timelineBalances['annualRent'];
                         $detailTenureTotal = (int) $timelineBalances['tenureTotal'];
@@ -259,9 +256,55 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                         <?php endif; ?>
                     </div>
                     <div>
-                        <span>Owed (current period)</span>
+                        <span>Service charge</span>
+                        <?php
+                        $detailScSummary = ($timelineTenant && isset($timelineTenant['scSummary'])) ? $timelineTenant['scSummary'] : array();
+                        $detailScSummary += array('months' => array(), 'totalRates' => 0, 'totalPaid' => 0, 'arrears' => 0, 'currentPeriod' => 0, 'outstanding' => 0);
+                        $detailScMonths = isset($detailScSummary['months']) && is_array($detailScSummary['months']) ? $detailScSummary['months'] : array();
+                        $detailScBilled = (int) $detailScSummary['totalRates'];
+                        $detailScPaid = (int) $detailScSummary['totalPaid'];
+                        $detailScOwed = (int) $detailScSummary['outstanding'];
+                        $detailScArrears = (int) $detailScSummary['arrears'];
+                        $detailScMonthsCount = count($detailScMonths);
+                        $detailScYears = $detailScMonthsCount > 0 ? max(1, (int) round($detailScMonthsCount / 12)) : 0;
+                        $detailScLow = 0;
+                        $detailScHigh = 0;
+
+                        foreach ($detailScMonths as $detailScMonth) {
+                            $detailScRate = (int) $detailScMonth['rate'];
+
+                            if ($detailScLow === 0 || $detailScRate < $detailScLow) {
+                                $detailScLow = $detailScRate;
+                            }
+
+                            if ($detailScRate > $detailScHigh) {
+                                $detailScHigh = $detailScRate;
+                            }
+                        }
+                        ?>
+                        <strong><?= $timelineTenant['serviceCharge'] > 0 ? htmlspecialchars(app_currency((int) $timelineTenant['serviceCharge']) . '/month', ENT_QUOTES, 'UTF-8') : '—' ?></strong>
+                        <?php if ($detailScBilled > 0): ?>
+                            <span class="muted-text">
+                                <?php if ($detailScYears > 0): ?>
+                                    SC for <?= (int) $detailScYears ?> year<?= (int) $detailScYears === 1 ? '' : 's' ?> &middot;
+                                <?php endif; ?>
+                                <?= htmlspecialchars(app_currency($detailScBilled), ENT_QUOTES, 'UTF-8') ?> &middot; paid <?= htmlspecialchars(app_currency($detailScPaid), ENT_QUOTES, 'UTF-8') ?>
+                            </span>
+                            <?php if ($detailScLow !== $detailScHigh && $detailScLow > 0): ?>
+                                <span class="admin-amount-note">rate <?= htmlspecialchars(app_currency($detailScLow), ENT_QUOTES, 'UTF-8') ?>–<?= htmlspecialchars(app_currency($detailScHigh), ENT_QUOTES, 'UTF-8') ?>/month</span>
+                            <?php endif; ?>
+                            <span class="<?= $detailScOwed > 0 ? 'admin-amount-due' : 'admin-amount-ok' ?>">SC payable <?= htmlspecialchars(app_currency($detailScOwed), ENT_QUOTES, 'UTF-8') ?></span>
+                            <?php if ($detailScArrears > 0): ?>
+                                <span class="admin-amount-note">incl. <?= htmlspecialchars(app_currency($detailScArrears), ENT_QUOTES, 'UTF-8') ?> arrears from an earlier period</span>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="muted-text">No service charge on this tenancy</span>
+                        <?php endif; ?>
+                    </div>
+                    <div>
+                        <span>Rent owed (current period)</span>
                         <strong class="<?= $timelineTenureOwed > 0 ? 'admin-amount-due' : 'admin-amount-ok' ?>"><?= htmlspecialchars(app_currency($timelineTenureOwed), ENT_QUOTES, 'UTF-8') ?></strong>
-                        <span class="muted-text">Total owed <?= htmlspecialchars(app_currency($timelineTotalOwed), ENT_QUOTES, 'UTF-8') ?><?= $timelinePriorArrears > 0 ? ' (incl. ' . htmlspecialchars(app_currency($timelinePriorArrears), ENT_QUOTES, 'UTF-8') . ' arrears)' : '' ?></span>
+                        <span class="muted-text">Total rent owed <?= htmlspecialchars(app_currency($timelineTotalOwed), ENT_QUOTES, 'UTF-8') ?><?= $timelinePriorArrears > 0 ? ' (incl. ' . htmlspecialchars(app_currency($timelinePriorArrears), ENT_QUOTES, 'UTF-8') . ' arrears)' : '' ?></span>
                     </div>
                 </div>
             </div>
@@ -1120,7 +1163,6 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                     <span>Rent Payable</span>
                     <span>SC Payable</span>
                     <span>Status</span>
-                    <span>Action</span>
                 </div>
                 <?php foreach ($tenants as $tenant): ?>
                     <?php
@@ -1184,11 +1226,6 @@ require dirname(__DIR__) . '/partials/admin-header.php';
                             <span class="admin-status-pill <?= htmlspecialchars((string) $tenant['status'], ENT_QUOTES, 'UTF-8') ?>">
                                 <?= htmlspecialchars((string) ucfirst($tenant['status']), ENT_QUOTES, 'UTF-8') ?>
                             </span>
-                        </span>
-                        <span>
-                            <div style="display:flex; gap:6px; align-items:center">
-                                <a class="admin-icon-button admin-icon-button-view" href="<?= htmlspecialchars($tenantViewHref, ENT_QUOTES, 'UTF-8') ?>" aria-label="View tenant details" title="View tenant details">View</a>
-                            </div>
                         </span>
                     </div>
                 <?php endforeach; ?>

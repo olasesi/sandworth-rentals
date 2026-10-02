@@ -1494,6 +1494,7 @@ $router->get('admin-charges', function () use ($platform) {
         $charges[(int) $property['id']] = array(
             'current' => $platform->propertyCurrentCharges($property),
             'history' => $platform->serviceChargeHistoryForProperty((int) $property['id']),
+            'rentHistory' => $platform->rentHistoryForProperty((int) $property['id']),
         );
     }
 
@@ -1538,7 +1539,8 @@ $router->post('admin-charge-update', function () use ($platform) {
 
     if ($field === 'rent') {
         $amount = isset($_POST['annual_rent']) ? trim((string) $_POST['annual_rent']) : '';
-        list($updated, $error) = $platform->setPropertyRent($propertyId, $amount);
+        $effectiveFrom = isset($_POST['rent_effective_from']) ? trim((string) $_POST['rent_effective_from']) : '';
+        list($updated, $error) = $platform->setPropertyRent($propertyId, $amount, $effectiveFrom);
 
         if ($error) {
             App\Core\Flash::add('error', $error);
@@ -1546,7 +1548,7 @@ $router->post('admin-charge-update', function () use ($platform) {
             app_redirect('admin-charges');
         }
 
-        App\Core\Flash::add('success', 'Annual rent was updated. This will apply to new and renewed tenancies only.');
+        App\Core\Flash::add('success', 'Annual rent was updated from the date you chose. Tenancies already running keep the rent they signed.');
         app_redirect('admin-charges');
     }
 
